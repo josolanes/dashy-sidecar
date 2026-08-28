@@ -1,0 +1,90 @@
+name: Docker Image CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  # Use docker.io for Docker Hub if empty
+  REGISTRY: ghcr.io
+
+jobs:
+
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set Semantic Version
+      id: semver
+      uses: paulhatch/semantic-version@v5.4.0
+      with:
+        # The prefix to use to identify tags
+        tag_prefix: "v"
+        # A string which, if present in a git commit, indicates that a change represents a
+        # major (breaking) change, supports regular expressions wrapped with '/'
+        major_pattern: "/!:|BREAKING CHANGE:/"
+        # A string which indicates the flags used by the `major_pattern` regular expression. Supported flags: idgs
+        major_regexp_flags: ""
+        # Same as above except indicating a minor change, supports regular expressions wrapped with '/'
+        minor_pattern: "/feat(\\(.+\\))?:/"
+        # A string which indicates the flags used by the `minor_pattern` regular expression. Supported flags: idgs
+        minor_regexp_flags: ""
+        # A string to determine the format of the version output
+        version_format: "${major}.${minor}.${patch}-prerelease${increment}"
+
+    - name: Create GitHub Release/Tag
+      uses: softprops/action-gh-release@v2
+      if: github.ref == 'refs/heads/main' # Only tag on the main branch
+      with:
+        # Use the version_tag output from the previous step
+        tag_name: ${{ steps.semver.outputs.version_tag }}
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.PUBLISH_ACTIONS }}
+    
+    # Set up BuildKit Docker container builder to be able to build
+    # multi-platform images and export cache
+    # https://github.com/docker/setup-buildx-action
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@master
+      
+    - name: Docker meta
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: |
+          ghcr.io/josolanes/dashy-sidecar
+        tags: |
+          # This automatically uses the current git tag
+          type=raw,value=${{ steps.semver.outputs.version }}
+          # Optional: also tag as 'latest' for every new git tag
+          type=raw,value=latest
+
+    # Login against a Docker registry except on PR
+    # https://github.com/docker/login-action
+    - name: Log into registry ${{ env.REGISTRY }}
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@master
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.PUBLISH_ACTIONS }}
+
+    # Build and push Docker image with Buildx (don't push on PR)
+    # https://github.com/docker/build-push-action
+    - name: Build and push Docker image
+      id: build-and-push
+      uses: docker/build-push-action@master
+      with:
+        context: .
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        file: Dockerfile
