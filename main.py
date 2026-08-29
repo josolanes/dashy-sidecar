@@ -129,12 +129,11 @@ def collect_services() -> List[K8sItem]:
         items: List[K8sItem] = []
         for svc in core.list_service_for_all_namespaces().items:
             meta = _extract_k8s_meta(svc.metadata.annotations)
-            name = svc.metadata.annotations.get("dashy.name")
-            if not name:
+            if not meta.title:
                 continue
             if meta.title or meta.description or meta.url or meta.icon:
                 items.append(K8sItem(
-                    name=name,
+                    name=svc.metadata.name,
                     namespace=svc.metadata.namespace,
                     kind="Service",
                     meta=meta,
@@ -155,12 +154,11 @@ def collect_ingresses() -> List[K8sItem]:
         items: List[K8sItem] = []
         for ing in net.list_ingress_for_all_namespaces().items:
             meta = _extract_k8s_meta(ing.metadata.annotations)
-            name = ing.metadata.annotations.get("dashy.name")
-            if not name:
+            if not meta.title:
                 continue
             if meta.title or meta.description or meta.url or meta.icon:
                 items.append(K8sItem(
-                    name=name,
+                    name=ing.metadata.name,
                     namespace=ing.metadata.namespace,
                     kind="Ingress",
                     meta=meta,
@@ -222,18 +220,15 @@ def collect_ingress_routes() -> List[K8sItem]:
                     if not url:
                         url = _extract_ingress_route_url(ir)
 
-                    name = raw_annotations.get("dashy.name")
-                    if not name:
+                    if not meta.title:
                         continue
 
-                    title = meta.title or name
-
                     items.append(K8sItem(
-                        name=name,
+                        name=meta_obj.get("name", ""),
                         namespace=ns,
                         kind="IngressRoute",
                         meta=K8sMeta(
-                            title=title,
+                            title=meta.title,
                             description=meta.description,
                             url=url,
                             icon=meta.icon,
