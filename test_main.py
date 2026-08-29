@@ -34,6 +34,70 @@ def test_extract_k8s_meta():
     assert _extract_k8s_meta({}) == K8sMeta()
 
 
+def test_extract_k8s_meta_yaml_block():
+    """Test that the YAML block annotation format works."""
+    annotations = {
+        "dashy": "section: Services\ntitle: Convert\nurl: https://convert.solanes.us",
+    }
+    meta = _extract_k8s_meta(annotations)
+    assert meta.title == "Convert"
+    assert meta.url == "https://convert.solanes.us"
+    assert meta.section == "Services"
+    assert meta.description == ""
+    assert meta.icon == ""
+
+
+def test_extract_k8s_meta_yaml_block_full():
+    """Test YAML block with all fields."""
+    annotations = {
+        "dashy": """title: Jellyfin
+description: Media server
+url: https://jellyfin.local
+icon: hl-jellyfin
+section: Media & Entertainment""",
+    }
+    meta = _extract_k8s_meta(annotations)
+    assert meta.title == "Jellyfin"
+    assert meta.description == "Media server"
+    assert meta.url == "https://jellyfin.local"
+    assert meta.icon == "hl-jellyfin"
+    assert meta.section == "Media & Entertainment"
+
+
+def test_extract_k8s_meta_block_vs_flat_priority():
+    """When both block and flat annotations are present, block takes priority."""
+    annotations = {
+        "dashy": "title: From Block\nurl: https://block.example.com",
+        "dashy.title": "From Flat",
+        "dashy.url": "https://flat.example.com",
+    }
+    meta = _extract_k8s_meta(annotations)
+    assert meta.title == "From Block"
+    assert meta.url == "https://block.example.com"
+
+
+def test_extract_k8s_meta_block_invalid_yaml():
+    """If the dashy block is invalid YAML, fall back to flat format."""
+    annotations = {
+        "dashy": "not valid yaml [[[",
+        "dashy.title": "Fallback Title",
+        "dashy.url": "https://fallback.example.com",
+    }
+    meta = _extract_k8s_meta(annotations)
+    assert meta.title == "Fallback Title"
+    assert meta.url == "https://fallback.example.com"
+
+
+def test_extract_k8s_meta_block_not_a_dict():
+    """If the dashy block parses to something other than a dict, fall back to flat."""
+    annotations = {
+        "dashy": "just a plain string",
+        "dashy.title": "Fallback Title",
+    }
+    meta = _extract_k8s_meta(annotations)
+    assert meta.title == "Fallback Title"
+
+
 def test_build_sections():
     items = [
         K8sItem(name="svc1", namespace="default", kind="Service",
@@ -300,6 +364,11 @@ sections: []
 
 if __name__ == "__main__":
     test_extract_k8s_meta()
+    test_extract_k8s_meta_yaml_block()
+    test_extract_k8s_meta_yaml_block_full()
+    test_extract_k8s_meta_block_vs_flat_priority()
+    test_extract_k8s_meta_block_invalid_yaml()
+    test_extract_k8s_meta_block_not_a_dict()
     test_build_sections()
     test_build_sections_empty()
     test_build_sections_missing_section()
@@ -309,4 +378,3 @@ if __name__ == "__main__":
     test_get_section_icon()
     test_write_config_file()
     test_integration_full_workflow()
-

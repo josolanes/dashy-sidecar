@@ -3,8 +3,25 @@
 Kubernetes sidecar for Dashy.
 
 Monitors Kubernetes Services, Ingresses, and IngressRoutes (Gateway API) for
-the following annotations and updates a Dashy conf.yml file with appropriate
+dashy metadata annotations and updates a Dashy conf.yml file with appropriate
 sections and items.
+
+Two annotation formats are supported:
+
+1. Flat format:
+    dashy.title: My Service
+    dashy.url: https://example.com
+    dashy.section: Services
+    dashy.description: A cool service
+    dashy.icon: hl-myicon
+
+2. YAML block format:
+    dashy: |
+      title: My Service
+      url: https://example.com
+      section: Services
+      description: A cool service
+      icon: hl-myicon
 
 Usage:
     python3 main.py [--conf /app/config/conf.yml] [--interval 60] [--kubeconfig ~/.kube/config]
@@ -106,10 +123,40 @@ def get_section_icon(name: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _extract_k8s_meta(annotations: Optional[Dict[str, str]]) -> K8sMeta:
-    """Extract dashy metadata from a Kubernetes resource's annotations dict."""
+    """Extract dashy metadata from a Kubernetes resource's annotations dict.
+
+    Supports two annotation formats:
+
+    1. Flat format (existing):
+        dashy.title: My Service
+        dashy.url: https://example.com
+
+    2. YAML block format (new):
+        dashy: |
+          section: Services
+          title: My Service
+          url: https://example.com
+    """
     if not annotations:
         return K8sMeta()
 
+    # --- Attempt YAML block format first ---
+    dashy_block = annotations.get("dashy")
+    if dashy_block:
+        try:
+            parsed = yaml.safe_load(dashy_block)
+            if isinstance(parsed, dict):
+                return K8sMeta(
+                    title=str(parsed.get("title", "")),
+                    description=str(parsed.get("description", "")),
+                    url=str(parsed.get("url", "")),
+                    icon=str(parsed.get("icon", "")),
+                    section=str(parsed.get("section", "")),
+                )
+        except yaml.YAMLError:
+            pass
+
+    # --- Fall back to flat format ---
     return K8sMeta(
         title=annotations.get("dashy.title", ""),
         description=annotations.get("dashy.description", ""),
