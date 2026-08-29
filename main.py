@@ -170,26 +170,46 @@ def collect_ingress_routes() -> List[K8sItem]:
     """
     Collect IngressRoute custom resources (Gateway API / Kong CRD).
 
-    Uses the discovery API to locate IngressRoute and then queries each
-    namespace for those resources via the dynamic client.
+    Uses the dynamic client to query IngressRoute resources from all
+    namespaces. Supports both gateway.networking.k8s.io IngressRoute and
+    any other custom resources whose kind is "IngressRoute".
     """
     if not HAS_K8S:
         return []
 
     try:
-        discovery = client.DiscoveryApi()
-        groups = discovery.get_api_groups()
+        from kubernetes import dynamic
+    except ImportError:
+        logging.warning("kubernetes.dynamic not available – skipping IngressRoute collection")
+        return []
 
-        # Check if IngressRoute group is available
-        has_route = False
-        for group in groups.groups:
-            for ver in group.versions:
-                if "gateway.networking.k8s.io" in ver.group_version or \
-                   "ingressroute" in ver.group_version.lower():
-                    has_route = True
+    try:
+        api = client.ApiClient()
+        dynamic_client = dynamic.DynamicClient(api)
+
+        # Discover resources matching "IngressRoute" kind
+        resource_map = dynamic_client.client.resources._api_versions
+
+        # Look for IngressRoute resources in the discovered API versions
+        ingress_route_resource = None
+        for api_group, versions in resource_map.items():
+            for version, resources in versions.items():
+                for resource_name in resources:
+                    try:
+                        resource = dynamic_client.resources.get(
+                            kind="IngressRoute",
+                            api_version=f"{api_group}/{version}" if "/" in version else version
+                        )
+                        ingress_route_resource = resource
+                        break
+                    except Exception:
+                        continue
+                if ingress_route_resource:
                     break
+            if ingress_route_resource:
+                break
 
-        if not has_route:
+        if ingress_route_resource is None:
             return []
 
         # Collect namespaces
@@ -197,18 +217,19 @@ def collect_ingress_routes() -> List[K8sItem]:
         namespaces = [ns.metadata.name for ns in ns_client.list_namespace().items]
 
         items: List[K8sItem] = []
-        api_version = "gateway.networking.k8s.io/v1"
-        plural = "ingressroutes"
 
         for ns in namespaces:
             try:
-                path = f"/apis/{api_version}/namespaces/{ns}/{plural}"
-                resp = client.ApiClient().request("GET", path)
-                body = json.loads(resp.data)
-                for ir in body.get("items", []):
+                resp = ingress_route_resource.get(namespace=ns)
+                for ir in resp.get("items", []):
                     meta_obj = ir.get("metadata", {})
                     raw_labels = meta_obj.get("labels", {})
                     meta = _extract_k8s_meta(raw_labels)
+
+                    # If no dashy.url, try to derive from IngressRoute spec
+                    url = meta.url
+                    if not url:
+                        url = _extract_ingress_route_url(ir)
 
                     title = meta.title or meta_obj.get("name", "")
 
@@ -219,7 +240,7 @@ def collect_ingress_routes() -> List[K8sItem]:
                         meta=K8sMeta(
                             title=title,
                             description=meta.description,
-                            url=meta.url,
+                            url=url,
                             icon=meta.icon,
                             section=meta.section,
                         ),
@@ -231,6 +252,83 @@ def collect_ingress_routes() -> List[K8sItem]:
     except Exception as e:
         logging.warning("Failed to list IngressRoutes: %s", e)
         return []
+
+
+def _extract_ingress_route_url(ir: Dict[str, Any]) -> str:
+    """
+    Try to extract a URL from an IngressRoute resource's spec.
+
+    Supports multiple common IngressRoute CRD formats:
+    - Gateway API: spec.http.routes.action(s).target(s)
+    - Kong: spec.http.routes[*].upstream(s) or spec.http.ups[*]
+    - Generic: Any top-level 'url' or 'host' field in spec
+    """
+    spec = ir.get("spec", {}) or {}
+
+    # Try common patterns
+    # Pattern 1: spec.url or spec.host
+    if spec.get("url"):
+        return spec["url"]
+    if spec.get("host"):
+        return spec["host"]
+
+    # Pattern 2: spec.http (Gateway API / Kong style)
+    http = spec.get("http", {}) or {}
+    if isinstance(http, dict):
+        routes = http.get("routes", []) or http.get("route", [])
+        if routes:
+            for route in routes:
+                if isinstance(route, dict):
+                    # Look for target URL/host in route actions
+                    targets = route.get("targets", []) or route.get("target", [])
+                    if targets:
+                        if isinstance(targets, list) and targets:
+                            target = targets[0]
+                        else:
+                            target = targets
+                        if isinstance(target, dict):
+                            return target.get("host", target.get("url", target.get("address", "")))
+                    # Look for action URL
+                    action = route.get("action", {})
+                    if isinstance(action, dict):
+                        return action.get("url", action.get("host", ""))
+                    # Look for upstream URL
+                    upstreams = route.get("upstreams", []) or route.get("upstream", [])
+                    if upstreams:
+                        if isinstance(upstreams, list) and upstreams:
+                            up = upstreams[0]
+                        else:
+                            up = upstreams
+                        if isinstance(up, dict):
+                            return up.get("url", up.get("host", up.get("address", "")))
+
+        ups = http.get("ups", [])
+        if ups:
+            for up in ups:
+                if isinstance(up, dict):
+                    url = up.get("url", up.get("host", up.get("address", "")))
+                    if url:
+                        return url
+
+    # Pattern 3: spec.rules (like Ingress)
+    rules = spec.get("rules", [])
+    if rules:
+        for rule in rules:
+            if isinstance(rule, dict):
+                host = rule.get("host", "")
+                paths = rule.get("paths", [])
+                if host:
+                    return host
+                if paths:
+                    for path in paths:
+                        if isinstance(path, dict):
+                            backend = path.get("backend", {})
+                            if isinstance(backend, dict):
+                                svc = backend.get("service", {})
+                                if isinstance(svc, dict):
+                                    return svc.get("host", svc.get("url", ""))
+
+    return ""
 
 
 def collect_all() -> List[K8sItem]:
@@ -562,4 +660,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

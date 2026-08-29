@@ -50,7 +50,7 @@ def test_build_sections():
     ]
     sections = build_sections(items)
     assert len(sections) == 3
-    assert sections[0].name == "Media & Entertainment
+    assert sections[0].name == "Media & Entertainment"
     assert sections[1].name == "Networking"
     assert sections[2].name == "Unnamed"
     assert len(sections[0].items) == 2
