@@ -31,5 +31,4 @@ ENV DASHY_CONF=/app/config/conf.yml
 ENV SYNC_INTERVAL=60
 
 # Run the sidecar
-CMD ["python3", "/app/main.py", "--conf", "${DASHY_CONF}"]
-
+CMD ["python3", "/app/main.py"]
