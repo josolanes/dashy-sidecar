@@ -3,7 +3,7 @@
 Kubernetes sidecar for Dashy.
 
 Monitors Kubernetes Services, Ingresses, and IngressRoutes (Gateway API) for
-the following labels and updates a Dashy conf.yml file with appropriate
+the following annotations and updates a Dashy conf.yml file with appropriate
 sections and items.
 
 Usage:
@@ -56,7 +56,7 @@ class K8sMeta:
 
 @dataclass
 class K8sItem:
-    """A single Kubernetes resource with dashy labels."""
+    """A single Kubernetes resource with dashy annotations."""
     name: str
     namespace: str
     kind: str
@@ -105,23 +105,22 @@ def get_section_icon(name: str) -> str:
 # Kubernetes collectors
 # ---------------------------------------------------------------------------
 
-def _extract_k8s_meta(labels: Optional[Dict[str, str]]) -> K8sMeta:
-    """Extract dashy labels from a Kubernetes resource's labels dict."""
-    if not labels:
+def _extract_k8s_meta(annotations: Optional[Dict[str, str]]) -> K8sMeta:
+    """Extract dashy metadata from a Kubernetes resource's annotations dict."""
+    if not annotations:
         return K8sMeta()
 
-    m = K8sMeta(
-        title=labels.get("dashy.title", ""),
-        description=labels.get("dashy.description", ""),
-        url=labels.get("dashy.url", ""),
-        icon=labels.get("dashy.icon", ""),
-        section=labels.get("dashy.section", ""),
+    return K8sMeta(
+        title=annotations.get("dashy.title", ""),
+        description=annotations.get("dashy.description", ""),
+        url=annotations.get("dashy.url", ""),
+        icon=annotations.get("dashy.icon", ""),
+        section=annotations.get("dashy.section", ""),
     )
-    return m
 
 
 def collect_services() -> List[K8sItem]:
-    """Collect all Services with dashy labels."""
+    """Collect all Services with dashy annotations."""
     if not HAS_K8S:
         return []
 
@@ -129,7 +128,7 @@ def collect_services() -> List[K8sItem]:
         core = client.CoreV1Api()
         items: List[K8sItem] = []
         for svc in core.list_service_for_all_namespaces().items:
-            meta = _extract_k8s_meta(svc.metadata.labels)
+            meta = _extract_k8s_meta(svc.metadata.annotations)
             if meta.title or meta.description or meta.url or meta.icon:
                 items.append(K8sItem(
                     name=svc.metadata.name,
@@ -144,7 +143,7 @@ def collect_services() -> List[K8sItem]:
 
 
 def collect_ingresses() -> List[K8sItem]:
-    """Collect all Ingresses with dashy labels."""
+    """Collect all Ingresses with dashy annotations."""
     if not HAS_K8S:
         return []
 
@@ -152,7 +151,7 @@ def collect_ingresses() -> List[K8sItem]:
         net = client.NetworkingV1Api()
         items: List[K8sItem] = []
         for ing in net.list_ingress_for_all_namespaces().items:
-            meta = _extract_k8s_meta(ing.metadata.labels)
+            meta = _extract_k8s_meta(ing.metadata.annotations)
             if meta.title or meta.description or meta.url or meta.icon:
                 items.append(K8sItem(
                     name=ing.metadata.name,
@@ -209,8 +208,8 @@ def collect_ingress_routes() -> List[K8sItem]:
                 resp = ingress_route_resource.get(namespace=ns)
                 for ir in resp.get("items", []):
                     meta_obj = ir.get("metadata", {})
-                    raw_labels = meta_obj.get("labels", {})
-                    meta = _extract_k8s_meta(raw_labels)
+                    raw_annotations = meta_obj.get("annotations", {})
+                    meta = _extract_k8s_meta(raw_annotations)
 
                     # If no dashy.url, try to derive from IngressRoute spec
                     url = meta.url
@@ -587,7 +586,7 @@ def sync(conf_path: str) -> None:
     # Collect
     items = collect_all()
     if not items:
-        logging.info("No dashy labels found – keeping existing config")
+        logging.info("No dashy annotations found – keeping existing config")
         return
 
     # Build sections
