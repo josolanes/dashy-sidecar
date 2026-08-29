@@ -17,7 +17,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@main
+      with:
+        fetch-depth: 0    # fetch all history
 
     - name: Set Semantic Version
       id: semver
