@@ -129,9 +129,12 @@ def collect_services() -> List[K8sItem]:
         items: List[K8sItem] = []
         for svc in core.list_service_for_all_namespaces().items:
             meta = _extract_k8s_meta(svc.metadata.annotations)
+            name = svc.metadata.annotations.get("dashy.name")
+            if not name:
+                continue
             if meta.title or meta.description or meta.url or meta.icon:
                 items.append(K8sItem(
-                    name=svc.metadata.name,
+                    name=name,
                     namespace=svc.metadata.namespace,
                     kind="Service",
                     meta=meta,
@@ -152,9 +155,12 @@ def collect_ingresses() -> List[K8sItem]:
         items: List[K8sItem] = []
         for ing in net.list_ingress_for_all_namespaces().items:
             meta = _extract_k8s_meta(ing.metadata.annotations)
+            name = ing.metadata.annotations.get("dashy.name")
+            if not name:
+                continue
             if meta.title or meta.description or meta.url or meta.icon:
                 items.append(K8sItem(
-                    name=ing.metadata.name,
+                    name=name,
                     namespace=ing.metadata.namespace,
                     kind="Ingress",
                     meta=meta,
@@ -216,10 +222,14 @@ def collect_ingress_routes() -> List[K8sItem]:
                     if not url:
                         url = _extract_ingress_route_url(ir)
 
-                    title = meta.title or meta_obj.get("name", "")
+                    name = raw_annotations.get("dashy.name")
+                    if not name:
+                        continue
+
+                    title = meta.title or name
 
                     items.append(K8sItem(
-                        name=meta_obj.get("name", ""),
+                        name=name,
                         namespace=ns,
                         kind="IngressRoute",
                         meta=K8sMeta(
