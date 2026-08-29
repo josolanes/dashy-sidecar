@@ -187,30 +187,16 @@ def collect_ingress_routes() -> List[K8sItem]:
         api = client.ApiClient()
         dynamic_client = dynamic.DynamicClient(api)
 
-        # Discover resources matching "IngressRoute" kind
-        resource_map = dynamic_client.client.resources._api_versions
+        # Use the discoverer to find all IngressRoute resources
+        # The discoverer's search method looks up resources by kind
+        discovered = dynamic_client.resources.search(kind="IngressRoute")
 
-        # Look for IngressRoute resources in the discovered API versions
-        ingress_route_resource = None
-        for api_group, versions in resource_map.items():
-            for version, resources in versions.items():
-                for resource_name in resources:
-                    try:
-                        resource = dynamic_client.resources.get(
-                            kind="IngressRoute",
-                            api_version=f"{api_group}/{version}" if "/" in version else version
-                        )
-                        ingress_route_resource = resource
-                        break
-                    except Exception:
-                        continue
-                if ingress_route_resource:
-                    break
-            if ingress_route_resource:
-                break
-
-        if ingress_route_resource is None:
+        if not discovered:
             return []
+
+        # 'discovered' is a list of DynamicResource objects
+        # Pick the first one (or use any matching one)
+        ingress_route_resource = discovered[0]
 
         # Collect namespaces
         ns_client = client.CoreV1Api()
