@@ -149,6 +149,7 @@ Any other section name gets the default ``fas fa-folder`` icon.
 For ``IngressRoute`` custom resources that lack an explicit ``dashy.url``, the sidecar attempts to derive one from the resource's spec. It checks multiple common patterns:
 
 - ``spec.url`` or ``spec.host``
+- ``spec.routes[0].match`` (Traefik style)
 - ``spec.http.routes[*].targets[*].host`` (Gateway API / Kong style)
 - ``spec.http.routes[*].action.url``
 - ``spec.http.ups[*].url``

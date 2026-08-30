@@ -13,6 +13,9 @@ from main import (
     build_sections, sections_have_changed,
     marshal_config, load_config, write_config, get_section_icon,
     _extract_k8s_meta,
+    _extract_url_from_match,
+    _auto_detect_scheme,
+    _extract_ingress_route_url,
 )
 
 
@@ -362,6 +365,142 @@ sections: []
         os.unlink(config_path)
 
 
+def test_extract_url_from_match():
+    """Test extracting hostname from Traefik IngressRoute match rules."""
+    # Single Host
+    assert _extract_url_from_match('Host(`opentunesource.com`)') == "opentunesource.com"
+
+    # Multiple Hosts - should return first
+    assert _extract_url_from_match(
+        'Host(`opentunesource.com`) || Host(`www.opentunesource.com`)'
+    ) == "opentunesource.com"
+
+    # With path match
+    assert _extract_url_from_match(
+        'Host(`example.com`) && Path(`/api`)'
+    ) == "example.com"
+
+    # With single quotes
+    assert _extract_url_from_match("Host('example.com')") == "example.com"
+
+    # Empty/None
+    assert _extract_url_from_match("") is None
+    assert _extract_url_from_match(None) is None
+
+    # No match pattern
+    assert _extract_url_from_match('Path(`/test`') is None
+
+
+def test_auto_detect_scheme():
+    """Test automatic http/https scheme detection."""
+    # Local URLs should default to http
+    assert _auto_detect_scheme("myapp.local") == "http://myapp.local"
+    assert _auto_detect_scheme("myapp.internal") == "http://myapp.internal"
+    assert _auto_detect_scheme("192.168.1.1") == "http://192.168.1.1"
+    assert _auto_detect_scheme("10.0.0.1") == "http://10.0.0.1"
+    assert _auto_detect_scheme("127.0.0.1") == "http://127.0.0.1"
+
+    # Public URLs should default to https
+    assert _auto_detect_scheme("example.com") == "https://example.com"
+    assert _auto_detect_scheme("opentunesource.com") == "https://opentunesource.com"
+    assert _auto_detect_scheme("www.example.com") == "https://www.example.com"
+    assert _auto_detect_scheme("dashy.example.com") == "https://dashy.example.com"
+
+    # URLs with explicit scheme should pass through
+    assert _auto_detect_scheme("https://example.com") == "https://example.com"
+    assert _auto_detect_scheme("http://example.com") == "http://example.com"
+    assert _auto_detect_scheme("http://myapp.local") == "http://myapp.local"
+    assert _auto_detect_scheme("https://myapp.local") == "https://myapp.local"
+
+    # URLs with path should detect scheme on host portion
+    assert _auto_detect_scheme("example.com/api") == "https://example.com/api"
+    assert _auto_detect_scheme("192.168.1.1:8080") == "http://192.168.1.1:8080"
+
+    # Empty/None
+    assert _auto_detect_scheme("") == ""
+
+
+def test_extract_ingress_route_url_traefik_match():
+    """Test extracting URL from Traefik IngressRoute spec using match pattern."""
+    ir = {
+        "spec": {
+            "routes": [
+                {
+                    "kind": "Rule",
+                    "match": "Host(`opentunesource.com`)",
+                }
+            ]
+        }
+    }
+    url = _extract_ingress_route_url(ir)
+    assert url == "https://opentunesource.com"
+
+
+def test_extract_ingress_route_url_traefik_match_multiple_hosts():
+    """Test that first hostname is chosen when multiple hosts exist in match."""
+    ir = {
+        "spec": {
+            "routes": [
+                {
+                    "kind": "Rule",
+                    "match": "Host(`opentunesource.com`) || Host(`www.opentunesource.com`)",
+                }
+            ]
+        }
+    }
+    url = _extract_ingress_route_url(ir)
+    assert url == "https://opentunesource.com"
+
+
+def test_extract_ingress_route_url_with_url_annotation():
+    """Test that annotation url takes precedence over match extraction."""
+    ir = {
+        "metadata": {
+            "name": "ingress",
+            "annotations": {
+                "dashy": """title: OpenTuneSource
+url: https://opentunesource.com
+description: Find and share ECU tunes
+icon: mdi-gauge
+section: Self Owned"""
+            }
+        },
+        "spec": {
+            "routes": [
+                {
+                    "kind": "Rule",
+                    "match": "Host(`opentunesource.com`) || Host(`www.opentunesource.com`)",
+                }
+            ]
+        }
+    }
+    # When url is in annotations, _extract_ingress_route_url won't be called
+    # because _extract_k8s_meta returns the url from the annotation
+    from main import _extract_k8s_meta
+    annotations = ir["metadata"]["annotations"]
+    meta = _extract_k8s_meta(annotations)
+    assert meta.url == "https://opentunesource.com"
+    # But _extract_ingress_route_url should also work as fallback
+    url = _extract_ingress_route_url(ir)
+    assert url == "https://opentunesource.com"
+
+
+def test_extract_ingress_route_url_local_host():
+    """Test that local hosts get http scheme from match pattern."""
+    ir = {
+        "spec": {
+            "routes": [
+                {
+                    "kind": "Rule",
+                    "match": "Host(`myapp.local`)",
+                }
+            ]
+        }
+    }
+    url = _extract_ingress_route_url(ir)
+    assert url == "http://myapp.local"
+
+
 if __name__ == "__main__":
     test_extract_k8s_meta()
     test_extract_k8s_meta_yaml_block()
@@ -378,3 +517,10 @@ if __name__ == "__main__":
     test_get_section_icon()
     test_write_config_file()
     test_integration_full_workflow()
+    test_extract_url_from_match()
+    test_auto_detect_scheme()
+    test_extract_ingress_route_url_traefik_match()
+    test_extract_ingress_route_url_traefik_match_multiple_hosts()
+    test_extract_ingress_route_url_with_url_annotation()
+    test_extract_ingress_route_url_local_host()
+    print("\nAll tests passed!")

@@ -2,7 +2,8 @@
 """
 Kubernetes sidecar for Dashy.
 
-Monitors Kubernetes Services, Ingresses, and IngressRoutes (Gateway API) for
+Monitors Kubernetes Services, Ingresses, and IngressRoutes (Gateway API / Traefik)
+for
 dashy metadata annotations and updates a Dashy conf.yml file with appropriate
 sections and items.
 
@@ -17,6 +18,7 @@ Two annotation formats are supported:
 
 2. YAML block format:
     dashy: |
+      section: Services
       title: My Service
       url: https://example.com
       section: Services
@@ -38,6 +40,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import signal
 import sys
 import time
@@ -164,6 +167,77 @@ def _extract_k8s_meta(annotations: Optional[Dict[str, str]]) -> K8sMeta:
         icon=annotations.get("dashy.icon", ""),
         section=annotations.get("dashy.section", ""),
     )
+
+
+def _extract_url_from_match(match_str: str) -> Optional[str]:
+    """
+    Extract the first hostname from a Traefik IngressRoute match rule.
+
+    Traefik match rules look like:
+      Host(`example.com`) || Host(`www.example.com`)
+
+    This function extracts the first quoted hostname.
+    """
+    if not match_str:
+        return None
+    # Match Host(`...`) or Host('...')
+    m = re.search(r"Host\([\`\']([^\`\']+)[\`\']\)", match_str)
+    if m:
+        return m.group(1)
+    return None
+
+
+def _auto_detect_scheme(url: str) -> str:
+    """
+    Determine whether to use http or https for the given URL and return a
+    complete URL with the appropriate scheme.
+
+    If the host ends with .local, .internal, is an IP address, or otherwise
+    implicitly represents a local URL, assume http. Otherwise assume https.
+
+    If the URL already has an explicit scheme prefix, return it unchanged.
+    If a scheme is missing, prepend the auto-detected scheme.
+    """
+    if not url:
+        return ""
+
+    # If the URL already has an explicit scheme, return as-is
+    if url.startswith("http://") or url.startswith("https://"):
+        return url
+
+    # Determine the scheme
+    scheme = "http" if _is_local_url(url) else "https"
+
+    # Prepend the scheme
+    return f"{scheme}://{url}"
+
+
+def _is_local_url(url: str) -> bool:
+    """Check if a URL (host portion) is implicitly local."""
+    # Extract the host portion
+    host = url
+    # Remove leading path separators or dots
+    host = host.lstrip("/").lstrip(".")
+    # Split on first / to get host from a full URL without scheme
+    host = host.split("/")[0]
+
+    # Check for .local, .internal suffixes
+    host_lower = host.lower()
+    if host_lower.endswith(".local") or host_lower.endswith(".internal"):
+        return True
+
+    # Strip port number if present (e.g., 192.168.1.1:8080 -> 192.168.1.1)
+    ip_host = host.split(":")[0]
+
+    # Check for IP addresses (IPv4)
+    if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", ip_host):
+        return True
+
+    # Check for [IPv6] addresses
+    if host.startswith("[") and "]" in host:
+        return True
+
+    return False
 
 
 def collect_services() -> List[K8sItem]:
@@ -296,6 +370,7 @@ def _extract_ingress_route_url(ir: Dict[str, Any]) -> str:
     Try to extract a URL from an IngressRoute resource's spec.
 
     Supports multiple common IngressRoute CRD formats:
+    - Traefik: spec.routes.0.match -> Host(`hostname`) with auto-scheme
     - Gateway API: spec.http.routes.action(s).target(s)
     - Kong: spec.http.routes[*].upstream(s) or spec.http.ups[*]
     - Generic: Any top-level 'url' or 'host' field in spec
@@ -305,16 +380,29 @@ def _extract_ingress_route_url(ir: Dict[str, Any]) -> str:
     # Try common patterns
     # Pattern 1: spec.url or spec.host
     if spec.get("url"):
-        return spec["url"]
+        url = str(spec["url"])
+        return _auto_detect_scheme(url)
     if spec.get("host"):
-        return spec["host"]
+        url = str(spec["host"])
+        return _auto_detect_scheme(url)
+
+    # Pattern 1b: spec.routes[0].match (Traefik standard)
+    routes = spec.get("routes", [])
+    if routes and isinstance(routes, list) and routes:
+        first_route = routes[0]
+        if isinstance(first_route, dict):
+            match_str = first_route.get("match", "")
+            if match_str:
+                hostname = _extract_url_from_match(match_str)
+                if hostname:
+                    return _auto_detect_scheme(hostname)
 
     # Pattern 2: spec.http (Gateway API / Kong style)
     http = spec.get("http", {}) or {}
     if isinstance(http, dict):
-        routes = http.get("routes", []) or http.get("route", [])
-        if routes:
-            for route in routes:
+        http_routes = http.get("routes", []) or http.get("route", [])
+        if http_routes:
+            for route in http_routes:
                 if isinstance(route, dict):
                     # Look for target URL/host in route actions
                     targets = route.get("targets", []) or route.get("target", [])
@@ -324,11 +412,15 @@ def _extract_ingress_route_url(ir: Dict[str, Any]) -> str:
                         else:
                             target = targets
                         if isinstance(target, dict):
-                            return target.get("host", target.get("url", target.get("address", "")))
+                            return _auto_detect_scheme(
+                                target.get("host", target.get("url", target.get("address", "")))
+                            )
                     # Look for action URL
                     action = route.get("action", {})
                     if isinstance(action, dict):
-                        return action.get("url", action.get("host", ""))
+                        return _auto_detect_scheme(
+                            action.get("url", action.get("host", ""))
+                        )
                     # Look for upstream URL
                     upstreams = route.get("upstreams", []) or route.get("upstream", [])
                     if upstreams:
@@ -337,7 +429,9 @@ def _extract_ingress_route_url(ir: Dict[str, Any]) -> str:
                         else:
                             up = upstreams
                         if isinstance(up, dict):
-                            return up.get("url", up.get("host", up.get("address", "")))
+                            return _auto_detect_scheme(
+                                up.get("url", up.get("host", up.get("address", "")))
+                            )
 
         ups = http.get("ups", [])
         if ups:
@@ -345,7 +439,7 @@ def _extract_ingress_route_url(ir: Dict[str, Any]) -> str:
                 if isinstance(up, dict):
                     url = up.get("url", up.get("host", up.get("address", "")))
                     if url:
-                        return url
+                        return _auto_detect_scheme(url)
 
     # Pattern 3: spec.rules (like Ingress)
     rules = spec.get("rules", [])
@@ -355,7 +449,7 @@ def _extract_ingress_route_url(ir: Dict[str, Any]) -> str:
                 host = rule.get("host", "")
                 paths = rule.get("paths", [])
                 if host:
-                    return host
+                    return _auto_detect_scheme(host)
                 if paths:
                     for path in paths:
                         if isinstance(path, dict):
@@ -363,7 +457,9 @@ def _extract_ingress_route_url(ir: Dict[str, Any]) -> str:
                             if isinstance(backend, dict):
                                 svc = backend.get("service", {})
                                 if isinstance(svc, dict):
-                                    return svc.get("host", svc.get("url", ""))
+                                    return _auto_detect_scheme(
+                                        svc.get("host", svc.get("url", ""))
+                                    )
 
     return ""
 
