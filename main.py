@@ -24,10 +24,10 @@ Two annotation formats are supported:
       icon: hl-myicon
 
 Usage:
-    python3 main.py [--conf /app/config/conf.yml] [--interval 60] [--kubeconfig ~/.kube/config]
+    python3 main.py [--conf /app/user-data/conf.yml] [--interval 60] [--kubeconfig ~/.kube/config]
 
 Environment variables:
-    DASHY_CONF   - path to conf.yml (default: /app/config/conf.yml)
+    DASHY_CONF   - path to conf.yml (default: /app/user-data/conf.yml)
     SYNC_INTERVAL - sync interval in seconds (default: 60)
     KUBECONFIG   - path to kubeconfig (default: in-cluster)
 """
@@ -672,7 +672,7 @@ def sync(conf_path: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Kubernetes sidecar for Dashy")
-    parser.add_argument("--conf", default=os.environ.get("DASHY_CONF", "/app/config/conf.yml"),
+    parser.add_argument("--conf", default=os.environ.get("DASHY_CONF", "/app/user-data/conf.yml"),
                         help="Path to Dashy conf.yml")
     parser.add_argument("--interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "60")),
                         help="Sync interval in seconds (default: 60)")
