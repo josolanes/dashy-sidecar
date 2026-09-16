@@ -53,10 +53,13 @@ import yaml
 # ---------------------------------------------------------------------------
 
 try:
+    # noinspection PyUnusedImports
     from kubernetes import client, config
-    from models.Dashy import DashyConfig, DashySection
-    from models.K8s import K8sItem, K8sMeta
-    from models.Sidecar import SidecarSection, SidecarConfig
+    # noinspection PyUnusedImports
+    from src.models.Dashy import DashyConfig, DashySection
+    # noinspection PyUnusedImports
+    from src.models.K8s import K8sItem, K8sMeta
+    from src.models.Sidecar import SidecarSection, SidecarConfig
     HAS_K8S = True
 except ImportError:
     HAS_K8S = False
@@ -84,8 +87,8 @@ def get_section_icon(name: str) -> str:
 # Kubernetes collectors
 # ---------------------------------------------------------------------------
 
-def _extract_k8s_meta(annotations: Optional[Dict[str, str]]) -> K8sMeta:
-    """Extract dashy metadata from a Kubernetes resource's annotations dict.
+def _extract_k8s_meta(k8annotations: Optional[Dict[str, str]]) -> K8sMeta:
+    """Extract dashy metadata from a Kubernetes resource's annotation dict.
 
     Supports two annotation formats:
 
@@ -99,11 +102,11 @@ def _extract_k8s_meta(annotations: Optional[Dict[str, str]]) -> K8sMeta:
           title: My Service
           url: https://example.com
     """
-    if not annotations:
+    if not k8annotations:
         return K8sMeta()
 
     # --- Attempt YAML block format first ---
-    dashy_block = annotations.get("dashy")
+    dashy_block = k8annotations.get("dashy")
     if dashy_block:
         try:
             parsed = yaml.safe_load(dashy_block)
@@ -120,11 +123,11 @@ def _extract_k8s_meta(annotations: Optional[Dict[str, str]]) -> K8sMeta:
 
     # --- Fall back to flat format ---
     return K8sMeta(
-        title=annotations.get("dashy.title", ""),
-        description=annotations.get("dashy.description", ""),
-        url=annotations.get("dashy.url", ""),
-        icon=annotations.get("dashy.icon", ""),
-        section=annotations.get("dashy.section", ""),
+        title=k8annotations.get("dashy.title", ""),
+        description=k8annotations.get("dashy.description", ""),
+        url=k8annotations.get("dashy.url", ""),
+        icon=k8annotations.get("dashy.icon", ""),
+        section=k8annotations.get("dashy.section", ""),
     )
 
 
@@ -152,7 +155,7 @@ def _auto_detect_scheme(url: str) -> str:
     complete URL with the appropriate scheme.
 
     If the host ends with .local, .internal, is an IP address, or otherwise
-    implicitly represents a local URL, assume http. Otherwise assume https.
+    implicitly represents a local URL, assume http. Otherwise, assume https.
 
     If the URL already has an explicit scheme prefix, return it unchanged.
     If a scheme is missing, prepend the auto-detected scheme.
@@ -288,6 +291,7 @@ def collect_ingress_routes() -> List[K8sItem]:
         items: List[K8sItem] = []
 
         for ns in namespaces:
+            # noinspection PyBroadException
             try:
                 resp = ingress_route_resource.get(namespace=ns)
                 for ir in resp.get("items", []):
@@ -521,7 +525,7 @@ def build_sections(items: List[K8sItem]) -> List[DashySection]:
 
 
 def sections_have_changed(old: List[DashySection], new: List[DashySection]) -> bool:
-    """Check if the sections content has changed (ignoring displayData)."""
+    """Check if the section content has changed (ignoring displayData)."""
     if len(old) != len(new):
         return True
 
@@ -545,10 +549,9 @@ def _escape(s: str) -> str:
 
 def marshal_config(cfg: DashyConfig) -> str:
     """Manually marshal the config to match Dashy's expected YAML format."""
-    lines: List[str] = []
+    lines: List[str] = ["pageInfo:"]
 
     # pageInfo
-    lines.append("pageInfo:")
     title = cfg.pageInfo.get("title", "")
     desc = cfg.pageInfo.get("description", "")
     if title:

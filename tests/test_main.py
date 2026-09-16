@@ -27,14 +27,14 @@ def test_extract_k8s_meta():
         "dashy.title": "My Service",
         "dashy.description": "A cool service",
         "dashy.url": "https://example.com",
-        "dashy.icon": "hl-myicon",
+        "dashy.icon": "hl-my-icon",
         "dashy.section": "Networking",
     }
     meta = _extract_k8s_meta(labels)
     assert meta.title == "My Service"
     assert meta.description == "A cool service"
     assert meta.url == "https://example.com"
-    assert meta.icon == "hl-myicon"
+    assert meta.icon == "hl-my-icon"
     assert meta.section == "Networking"
     assert _extract_k8s_meta(None) == K8sMeta()
     assert _extract_k8s_meta({}) == K8sMeta()
@@ -221,7 +221,7 @@ def test_marshal_config():
     assert secs[1]["filteredItems"]
 
 
-def test_preserve_appConfig():
+def test_preserve_appconfig():
     yaml_content = """pageInfo:
   title: "Test"
   description: "Test config"
@@ -388,6 +388,7 @@ def test_extract_url_from_match():
 
     # Empty/None
     assert _extract_url_from_match("") is None
+    # noinspection PyTypeChecker
     assert _extract_url_from_match(None) is None
 
     # No match pattern
@@ -479,7 +480,7 @@ section: Self Owned"""
     }
     # When url is in annotations, _extract_ingress_route_url won't be called
     # because _extract_k8s_meta returns the url from the annotation
-    from main import _extract_k8s_meta
+    from src.main import _extract_k8s_meta
     annotations = ir["metadata"]["annotations"]
     meta = _extract_k8s_meta(annotations)
     assert meta.url == "https://opentunesource.com"
@@ -515,7 +516,7 @@ if __name__ == "__main__":
     test_build_sections_empty()
     test_build_sections_missing_section()
     test_marshal_config()
-    test_preserve_appConfig()
+    test_preserve_appconfig()
     test_sections_have_changed()
     test_get_section_icon()
     test_write_config_file()
