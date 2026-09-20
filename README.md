@@ -284,7 +284,7 @@ This produces a Dashy config with three sections — **Media & Entertainment** (
 
 ```bash
 pip install -r requirements.txt
-python3 main.py --conf ./conf.yml --interval 30
+python main.py --kubeconfig tests/config --conf tests/dashy.yml
 ```
 
 Or build a Docker image:
