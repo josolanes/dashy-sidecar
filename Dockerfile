@@ -12,6 +12,7 @@ RUN mkdir -p /app/config
 WORKDIR /app
 
 # Copy application
+COPY src/ /app/
 COPY main.py /app/main.py
 
 # Ensure config directory exists
