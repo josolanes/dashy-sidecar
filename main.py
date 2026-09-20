@@ -148,8 +148,6 @@ def main() -> None:
     if args.kubeconfig:
         os.environ["KUBECONFIG"] = args.kubeconfig
 
-    logging.info(os.environ["KUBECONFIG"])
-
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
         level=log_level,
