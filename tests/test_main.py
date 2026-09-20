@@ -3,24 +3,21 @@
 
 import sys
 from pathlib import Path
+
+from src.models.K8s import K8s, K8sItem, K8sMeta
+from src.models.Sidecar import Sidecar
+from src.models.Dashy import Dashy, DashySection, DashyConfig
+from src.models.Url import Url
+
 sys.path.append(str(Path(__file__).parent.parent / 'src'))
 
 import os
 import tempfile
 import yaml
 
-from src.main import (
-    DashyConfig, DashySection,
-    K8sItem, K8sMeta,
-    SidecarConfig, SidecarSection,
-    build_sections, sections_have_changed,
-    marshal_config, load_config, write_config, get_section_icon,
-    _extract_k8s_meta,
-    _extract_url_from_match,
-    _auto_detect_scheme,
-    _extract_ingress_route_url
-)
-
+k8s = K8s(None)
+dashy = Dashy(None)
+sidecar = Sidecar(None)
 
 def test_extract_k8s_meta():
     labels = {
@@ -30,14 +27,14 @@ def test_extract_k8s_meta():
         "dashy.icon": "hl-my-icon",
         "dashy.section": "Networking",
     }
-    meta = _extract_k8s_meta(labels)
+    meta = k8s.extract_k8s_meta(labels)
     assert meta.title == "My Service"
     assert meta.description == "A cool service"
     assert meta.url == "https://example.com"
     assert meta.icon == "hl-my-icon"
     assert meta.section == "Networking"
-    assert _extract_k8s_meta(None) == K8sMeta()
-    assert _extract_k8s_meta({}) == K8sMeta()
+    assert k8s.extract_k8s_meta(None) == K8sMeta()
+    assert k8s.extract_k8s_meta({}) == K8sMeta()
 
 
 def test_extract_k8s_meta_yaml_block():
@@ -45,7 +42,7 @@ def test_extract_k8s_meta_yaml_block():
     annotations = {
         "dashy": "section: Services\ntitle: Convert\nurl: https://convert.solanes.us",
     }
-    meta = _extract_k8s_meta(annotations)
+    meta = k8s.extract_k8s_meta(annotations)
     assert meta.title == "Convert"
     assert meta.url == "https://convert.solanes.us"
     assert meta.section == "Services"
@@ -62,7 +59,7 @@ url: https://jellyfin.local
 icon: hl-jellyfin
 section: Media & Entertainment""",
     }
-    meta = _extract_k8s_meta(annotations)
+    meta = k8s.extract_k8s_meta(annotations)
     assert meta.title == "Jellyfin"
     assert meta.description == "Media server"
     assert meta.url == "https://jellyfin.local"
@@ -77,7 +74,7 @@ def test_extract_k8s_meta_block_vs_flat_priority():
         "dashy.title": "From Flat",
         "dashy.url": "https://flat.example.com",
     }
-    meta = _extract_k8s_meta(annotations)
+    meta = k8s.extract_k8s_meta(annotations)
     assert meta.title == "From Block"
     assert meta.url == "https://block.example.com"
 
@@ -89,7 +86,7 @@ def test_extract_k8s_meta_block_invalid_yaml():
         "dashy.title": "Fallback Title",
         "dashy.url": "https://fallback.example.com",
     }
-    meta = _extract_k8s_meta(annotations)
+    meta = k8s.extract_k8s_meta(annotations)
     assert meta.title == "Fallback Title"
     assert meta.url == "https://fallback.example.com"
 
@@ -100,7 +97,7 @@ def test_extract_k8s_meta_block_not_a_dict():
         "dashy": "just a plain string",
         "dashy.title": "Fallback Title",
     }
-    meta = _extract_k8s_meta(annotations)
+    meta = k8s.extract_k8s_meta(annotations)
     assert meta.title == "Fallback Title"
 
 
@@ -118,7 +115,10 @@ def test_build_sections():
         K8sItem(name="svc4", namespace="default", kind="Service",
                 meta=K8sMeta(title="Unlabelled", section="", icon="hl-something")),
     ]
-    sections = build_sections(items)
+
+    sidecar_icons = sidecar.get_section_icons()
+
+    sections = dashy.build_sections(items, sidecar_icons)
     assert len(sections) == 3
     assert sections[0].name == "Media & Entertainment"
     assert sections[1].name == "Networking"
@@ -134,7 +134,9 @@ def test_build_sections():
 
 
 def test_build_sections_empty():
-    assert build_sections([]) == []
+    sidecar_icons = sidecar.get_section_icons()
+
+    assert dashy.build_sections([], sidecar_icons) == []
 
 
 def test_build_sections_missing_section():
@@ -144,7 +146,9 @@ def test_build_sections_missing_section():
         K8sItem(name="svc2", namespace="default", kind="Service",
                 meta=K8sMeta(url="https://example.com", icon="hl-icon")),
     ]
-    sections = build_sections(items)
+    sidecar_icons = sidecar.get_section_icons()
+
+    sections = dashy.build_sections(items, sidecar_icons)
     assert len(sections) == 2
     smap = {s.name: s for s in sections}
     assert "Test" in smap
@@ -200,7 +204,7 @@ def test_marshal_config():
             ),
         ],
     )
-    yaml_str = marshal_config(cfg)
+    yaml_str = dashy.marshal_config(cfg)
     parsed = yaml.safe_load(yaml_str)
     assert parsed["pageInfo"]["title"] == "Demo Homelab"
     assert parsed["pageInfo"]["description"] == "Live Demo of Dashy"
@@ -251,16 +255,19 @@ sections:
         f.write(yaml_content)
         config_path = f.name
     try:
-        cfg = load_config(config_path)
+        cfg = dashy.load_config(config_path)
         assert cfg.pageInfo["title"] == "Test"
         assert cfg.appConfig["theme"] == "nord-frost"
-        cfg.sections = build_sections([
+
+        sidecar_icons = sidecar.get_section_icons()
+
+        cfg.sections = dashy.build_sections([
             K8sItem(name="new-svc", namespace="default", kind="Service",
                     meta=K8sMeta(title="New Service", section="New Section",
                                  icon="hl-new")),
-        ])
-        write_config(config_path, marshal_config(cfg))
-        cfg2 = load_config(config_path)
+        ], sidecar_icons)
+        dashy.write_config(config_path, dashy.marshal_config(cfg))
+        cfg2 = dashy.load_config(config_path)
         assert cfg2.pageInfo["title"] == "Test"
         assert cfg2.appConfig["theme"] == "nord-frost"
         assert len(cfg2.sections) == 1
@@ -272,18 +279,20 @@ sections:
 def test_sections_have_changed():
     s1 = [DashySection(name="A", items=[{"title": "X"}])]
     s2 = [DashySection(name="A", items=[{"title": "X"}])]
-    assert not sections_have_changed(s1, s2)
+    assert not dashy.sections_have_changed(s1, s2)
     s3 = [DashySection(name="A", items=[{"title": "Y"}])]
-    assert sections_have_changed(s1, s3)
+    assert dashy.sections_have_changed(s1, s3)
     s4 = [DashySection(name="A", items=[{"title": "X"}]),
           DashySection(name="B", items=[{"title": "Y"}])]
-    assert sections_have_changed(s1, s4)
+    assert dashy.sections_have_changed(s1, s4)
 
 
 def test_get_section_icon():
-    assert get_section_icon("Media & Entertainment") == "fas fa-photo-video"
-    assert get_section_icon("Networking") == "fas fa-network-wired"
-    assert get_section_icon("Custom Section") == "fas fa-folder"
+    sidecar_icons = sidecar.get_section_icons()
+
+    assert dashy._get_section_icon(sidecar_icons, "Media & Entertainment") == "fas fa-photo-video"
+    assert dashy._get_section_icon(sidecar_icons, "Networking") == "fas fa-network-wired"
+    assert dashy._get_section_icon(sidecar_icons, "Custom Section") == "fas fa-folder"
 
 
 def test_write_config_file():
@@ -296,7 +305,7 @@ def test_write_config_file():
             sections=[DashySection(name="Section1", icon="fas fa-test",
                                   items=[{"title": "Item1"}])],
         )
-        write_config(config_path, marshal_config(cfg))
+        dashy.write_config(config_path, dashy.marshal_config(cfg))
         with open(config_path) as f:
             content = f.read()
         assert "pageInfo:" in content
@@ -346,12 +355,13 @@ sections: []
                                  description="Firewall and network config",
                                  icon="hl-opnsense")),
         ]
-        cfg = load_config(config_path)
-        new_sections = build_sections(items)
-        assert sections_have_changed(cfg.sections, new_sections)
+        cfg = dashy.load_config(config_path)
+        sidecar_icons = sidecar.get_section_icons()
+        new_sections = dashy.build_sections(items, sidecar_icons)
+        assert dashy.sections_have_changed(cfg.sections, new_sections)
         cfg.sections = new_sections
-        write_config(config_path, marshal_config(cfg))
-        cfg2 = load_config(config_path)
+        dashy.write_config(config_path, dashy.marshal_config(cfg))
+        cfg2 = dashy.load_config(config_path)
         parsed = yaml.safe_load(open(config_path))
         assert cfg2.pageInfo["title"] == "Demo Homelab"
         assert parsed["appConfig"]["theme"] == "nord-frost"
@@ -363,7 +373,6 @@ sections: []
         assert parsed["sections"][0]["items"][0]["description"] == "Media server"
         assert parsed["sections"][1]["name"] == "Networking"
         assert len(parsed["sections"][1]["items"]) == 2
-        print("\nAll tests passed!")
     finally:
         os.unlink(config_path)
 
@@ -371,57 +380,57 @@ sections: []
 def test_extract_url_from_match():
     """Test extracting hostname from Traefik IngressRoute match rules."""
     # Single Host
-    assert _extract_url_from_match('Host(`opentunesource.com`)') == "opentunesource.com"
+    assert Url.extract_url_from_match('Host(`opentunesource.com`)') == "opentunesource.com"
 
     # Multiple Hosts - should return first
-    assert _extract_url_from_match(
+    assert Url.extract_url_from_match(
         'Host(`opentunesource.com`) || Host(`www.opentunesource.com`)'
     ) == "opentunesource.com"
 
     # With path match
-    assert _extract_url_from_match(
+    assert Url.extract_url_from_match(
         'Host(`example.com`) && Path(`/api`)'
     ) == "example.com"
 
     # With single quotes
-    assert _extract_url_from_match("Host('example.com')") == "example.com"
+    assert Url.extract_url_from_match("Host('example.com')") == "example.com"
 
     # Empty/None
-    assert _extract_url_from_match("") is None
+    assert Url.extract_url_from_match("") is None
     # noinspection PyTypeChecker
-    assert _extract_url_from_match(None) is None
+    assert Url.extract_url_from_match(None) is None
 
     # No match pattern
-    assert _extract_url_from_match('Path(`/test`') is None
+    assert Url.extract_url_from_match('Path(`/test`') is None
 
 
 def test_auto_detect_scheme():
     """Test automatic http/https scheme detection."""
     # Local URLs should default to http
-    assert _auto_detect_scheme("myapp.local") == "http://myapp.local"
-    assert _auto_detect_scheme("myapp.internal") == "http://myapp.internal"
-    assert _auto_detect_scheme("192.168.1.1") == "http://192.168.1.1"
-    assert _auto_detect_scheme("10.0.0.1") == "http://10.0.0.1"
-    assert _auto_detect_scheme("127.0.0.1") == "http://127.0.0.1"
+    assert Url.auto_detect_scheme("myapp.local") == "http://myapp.local"
+    assert Url.auto_detect_scheme("myapp.internal") == "http://myapp.internal"
+    assert Url.auto_detect_scheme("192.168.1.1") == "http://192.168.1.1"
+    assert Url.auto_detect_scheme("10.0.0.1") == "http://10.0.0.1"
+    assert Url.auto_detect_scheme("127.0.0.1") == "http://127.0.0.1"
 
     # Public URLs should default to https
-    assert _auto_detect_scheme("example.com") == "https://example.com"
-    assert _auto_detect_scheme("opentunesource.com") == "https://opentunesource.com"
-    assert _auto_detect_scheme("www.example.com") == "https://www.example.com"
-    assert _auto_detect_scheme("dashy.example.com") == "https://dashy.example.com"
+    assert Url.auto_detect_scheme("example.com") == "https://example.com"
+    assert Url.auto_detect_scheme("opentunesource.com") == "https://opentunesource.com"
+    assert Url.auto_detect_scheme("www.example.com") == "https://www.example.com"
+    assert Url.auto_detect_scheme("dashy.example.com") == "https://dashy.example.com"
 
     # URLs with explicit scheme should pass through
-    assert _auto_detect_scheme("https://example.com") == "https://example.com"
-    assert _auto_detect_scheme("http://example.com") == "http://example.com"
-    assert _auto_detect_scheme("http://myapp.local") == "http://myapp.local"
-    assert _auto_detect_scheme("https://myapp.local") == "https://myapp.local"
+    assert Url.auto_detect_scheme("https://example.com") == "https://example.com"
+    assert Url.auto_detect_scheme("http://example.com") == "http://example.com"
+    assert Url.auto_detect_scheme("http://myapp.local") == "http://myapp.local"
+    assert Url.auto_detect_scheme("https://myapp.local") == "https://myapp.local"
 
     # URLs with path should detect scheme on host portion
-    assert _auto_detect_scheme("example.com/api") == "https://example.com/api"
-    assert _auto_detect_scheme("192.168.1.1:8080") == "http://192.168.1.1:8080"
+    assert Url.auto_detect_scheme("example.com/api") == "https://example.com/api"
+    assert Url.auto_detect_scheme("192.168.1.1:8080") == "http://192.168.1.1:8080"
 
     # Empty/None
-    assert _auto_detect_scheme("") == ""
+    assert Url.auto_detect_scheme("") == ""
 
 
 def test_extract_ingress_route_url_traefik_match():
@@ -436,7 +445,7 @@ def test_extract_ingress_route_url_traefik_match():
             ]
         }
     }
-    url = _extract_ingress_route_url(ir)
+    url = k8s.extract_ingress_route_url(ir)
     assert url == "https://opentunesource.com"
 
 
@@ -452,7 +461,7 @@ def test_extract_ingress_route_url_traefik_match_multiple_hosts():
             ]
         }
     }
-    url = _extract_ingress_route_url(ir)
+    url = k8s.extract_ingress_route_url(ir)
     assert url == "https://opentunesource.com"
 
 
@@ -480,12 +489,11 @@ section: Self Owned"""
     }
     # When url is in annotations, _extract_ingress_route_url won't be called
     # because _extract_k8s_meta returns the url from the annotation
-    from src.main import _extract_k8s_meta
     annotations = ir["metadata"]["annotations"]
-    meta = _extract_k8s_meta(annotations)
+    meta = k8s.extract_k8s_meta(annotations)
     assert meta.url == "https://opentunesource.com"
     # But _extract_ingress_route_url should also work as fallback
-    url = _extract_ingress_route_url(ir)
+    url = k8s.extract_ingress_route_url(ir)
     assert url == "https://opentunesource.com"
 
 
@@ -501,7 +509,7 @@ def test_extract_ingress_route_url_local_host():
             ]
         }
     }
-    url = _extract_ingress_route_url(ir)
+    url = k8s.extract_ingress_route_url(ir)
     assert url == "http://myapp.local"
 
 
