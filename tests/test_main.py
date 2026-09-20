@@ -1,0 +1,538 @@
+#!/usr/bin/env python3
+"""Unit tests for the Dashy Kubernetes sidecar."""
+
+import sys
+from pathlib import Path
+
+from src.models.K8s import K8s, K8sItem, K8sMeta
+from src.models.Sidecar import Sidecar
+from src.models.Dashy import Dashy, DashySection, DashyConfig
+from src.models.Url import Url
+
+sys.path.append(str(Path(__file__).parent.parent / 'src'))
+
+import os
+import tempfile
+import yaml
+
+k8s = K8s(None)
+dashy = Dashy(None)
+sidecar = Sidecar(None)
+
+def test_extract_k8s_meta():
+    labels = {
+        "dashy.title": "My Service",
+        "dashy.description": "A cool service",
+        "dashy.url": "https://example.com",
+        "dashy.icon": "hl-my-icon",
+        "dashy.section": "Networking",
+    }
+    meta = k8s.extract_k8s_meta(labels)
+    assert meta.title == "My Service"
+    assert meta.description == "A cool service"
+    assert meta.url == "https://example.com"
+    assert meta.icon == "hl-my-icon"
+    assert meta.section == "Networking"
+    assert k8s.extract_k8s_meta(None) == K8sMeta()
+    assert k8s.extract_k8s_meta({}) == K8sMeta()
+
+
+def test_extract_k8s_meta_yaml_block():
+    """Test that the YAML block annotation format works."""
+    annotations = {
+        "dashy": "section: Services\ntitle: Convert\nurl: https://convert.solanes.us",
+    }
+    meta = k8s.extract_k8s_meta(annotations)
+    assert meta.title == "Convert"
+    assert meta.url == "https://convert.solanes.us"
+    assert meta.section == "Services"
+    assert meta.description == ""
+    assert meta.icon == ""
+
+
+def test_extract_k8s_meta_yaml_block_full():
+    """Test YAML block with all fields."""
+    annotations = {
+        "dashy": """title: Jellyfin
+description: Media server
+url: https://jellyfin.local
+icon: hl-jellyfin
+section: Media & Entertainment""",
+    }
+    meta = k8s.extract_k8s_meta(annotations)
+    assert meta.title == "Jellyfin"
+    assert meta.description == "Media server"
+    assert meta.url == "https://jellyfin.local"
+    assert meta.icon == "hl-jellyfin"
+    assert meta.section == "Media & Entertainment"
+
+
+def test_extract_k8s_meta_block_vs_flat_priority():
+    """When both block and flat annotations are present, block takes priority."""
+    annotations = {
+        "dashy": "title: From Block\nurl: https://block.example.com",
+        "dashy.title": "From Flat",
+        "dashy.url": "https://flat.example.com",
+    }
+    meta = k8s.extract_k8s_meta(annotations)
+    assert meta.title == "From Block"
+    assert meta.url == "https://block.example.com"
+
+
+def test_extract_k8s_meta_block_invalid_yaml():
+    """If the dashy block is invalid YAML, fall back to flat format."""
+    annotations = {
+        "dashy": "not valid yaml [[[",
+        "dashy.title": "Fallback Title",
+        "dashy.url": "https://fallback.example.com",
+    }
+    meta = k8s.extract_k8s_meta(annotations)
+    assert meta.title == "Fallback Title"
+    assert meta.url == "https://fallback.example.com"
+
+
+def test_extract_k8s_meta_block_not_a_dict():
+    """If the dashy block parses to something other than a dict, fall back to flat."""
+    annotations = {
+        "dashy": "just a plain string",
+        "dashy.title": "Fallback Title",
+    }
+    meta = k8s.extract_k8s_meta(annotations)
+    assert meta.title == "Fallback Title"
+
+
+def test_build_sections():
+    items = [
+        K8sItem(name="svc1", namespace="default", kind="Service",
+                meta=K8sMeta(title="Jellyfin", section="Media & Entertainment",
+                             icon="hl-jellyfin", url="https://jellyfin.local")),
+        K8sItem(name="svc2", namespace="default", kind="Service",
+                meta=K8sMeta(title="Plex", section="Media & Entertainment",
+                             icon="hl-plex")),
+        K8sItem(name="svc3", namespace="default", kind="Service",
+                meta=K8sMeta(title="Pi-Hole", section="Networking",
+                             description="DNS ad-blocking", icon="hl-pihole")),
+        K8sItem(name="svc4", namespace="default", kind="Service",
+                meta=K8sMeta(title="Unlabelled", section="", icon="hl-something")),
+    ]
+
+    sidecar_icons = sidecar.get_section_icons()
+
+    sections = dashy.build_sections(items, sidecar_icons)
+    assert len(sections) == 3
+    assert sections[0].name == "Media & Entertainment"
+    assert sections[1].name == "Networking"
+    assert sections[2].name == "Unnamed"
+    assert len(sections[0].items) == 2
+    assert sections[0].items[0]["title"] == "Jellyfin"
+    assert sections[0].items[1]["title"] == "Plex"
+    assert len(sections[1].items) == 1
+    assert sections[1].items[0]["title"] == "Pi-Hole"
+    assert sections[1].items[0]["description"] == "DNS ad-blocking"
+    assert len(sections[2].items) == 1
+    assert sections[2].items[0]["title"] == "Unlabelled"
+
+
+def test_build_sections_empty():
+    sidecar_icons = sidecar.get_section_icons()
+
+    assert dashy.build_sections([], sidecar_icons) == []
+
+
+def test_build_sections_missing_section():
+    items = [
+        K8sItem(name="svc1", namespace="default", kind="Service",
+                meta=K8sMeta(title="Only Title", section="Test")),
+        K8sItem(name="svc2", namespace="default", kind="Service",
+                meta=K8sMeta(url="https://example.com", icon="hl-icon")),
+    ]
+    sidecar_icons = sidecar.get_section_icons()
+
+    sections = dashy.build_sections(items, sidecar_icons)
+    assert len(sections) == 2
+    smap = {s.name: s for s in sections}
+    assert "Test" in smap
+    assert "Unnamed" in smap
+    assert len(smap["Test"].items) == 1
+    assert smap["Test"].items[0]["title"] == "Only Title"
+    ui = smap["Unnamed"].items
+    assert len(ui) == 1
+    assert "title" not in ui[0]
+    assert ui[0].get("url") == "https://example.com"
+    assert ui[0].get("icon") == "hl-icon"
+
+
+def test_marshal_config():
+    cfg = DashyConfig(
+        pageInfo={
+            "title": "Demo Homelab",
+            "description": "Live Demo of Dashy",
+            "navLinks": [
+                {"title": "GitHub", "path": "https://github.com/Lissy93/dashy"},
+                {"title": "Documentation", "path": "https://dashy.to/docs"},
+            ],
+        },
+        appConfig={
+            "theme": "nord-frost",
+            "customColors": {
+                "material-dark-original": {
+                    "primary": "#f36558",
+                    "background": "#39434C",
+                },
+            },
+            "enableErrorReporting": True,
+            "layout": "auto",
+            "iconSize": "medium",
+        },
+        sections=[
+            DashySection(
+                name="Media & Entertainment",
+                icon="fas fa-photo-video",
+                display_data={"sortBy": "default", "cols": 2, "itemCountX": 6},
+                items=[
+                    {"title": "Jellyfin", "icon": "hl-jellyfin", "url": "https://jellyfin.local"},
+                    {"title": "Plex", "icon": "hl-plex"},
+                ],
+            ),
+            DashySection(
+                name="Networking",
+                icon="fas fa-network-wired",
+                display_data={"sortBy": "default", "cols": 2, "itemCountX": 6},
+                items=[
+                    {"title": "Pi-Hole", "description": "DNS ad-blocking", "icon": "hl-pihole"},
+                ],
+            ),
+        ],
+    )
+    yaml_str = dashy.marshal_config(cfg)
+    parsed = yaml.safe_load(yaml_str)
+    assert parsed["pageInfo"]["title"] == "Demo Homelab"
+    assert parsed["pageInfo"]["description"] == "Live Demo of Dashy"
+    assert len(parsed["pageInfo"]["navLinks"]) == 2
+    assert parsed["appConfig"]["theme"] == "nord-frost"
+    assert parsed["appConfig"]["enableErrorReporting"] is True
+    assert parsed["appConfig"]["layout"] == "auto"
+    assert parsed["appConfig"]["iconSize"] == "medium"
+    secs = parsed["sections"]
+    assert len(secs) == 2
+    assert secs[0]["name"] == "Media & Entertainment"
+    assert secs[0]["icon"] == "fas fa-photo-video"
+    assert len(secs[0]["items"]) == 2
+    assert secs[0]["items"][0]["title"] == "Jellyfin"
+    assert secs[1]["name"] == "Networking"
+    assert secs[1]["items"][0]["description"] == "DNS ad-blocking"
+    assert secs[0]["filteredItems"]
+    assert secs[1]["filteredItems"]
+
+
+def test_preserve_appconfig():
+    yaml_content = """pageInfo:
+  title: "Test"
+  description: "Test config"
+appConfig:
+  theme: nord-frost
+  customColors:
+    material-dark-original:
+      primary: '#f36558'
+      background: '#39434C'
+  enableErrorReporting: true
+  layout: auto
+  iconSize: medium
+sections:
+  - name: Old Section
+    icon: fas fa-folder
+    displayData:
+      sortBy: default
+      cols: 2
+      itemCountX: 6
+    items:
+      - title: Old Item
+        icon: hl-old
+    filteredItems:
+      - title: Old Item
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
+        f.write(yaml_content)
+        config_path = f.name
+    try:
+        cfg = dashy.load_config(config_path)
+        assert cfg.pageInfo["title"] == "Test"
+        assert cfg.appConfig["theme"] == "nord-frost"
+
+        sidecar_icons = sidecar.get_section_icons()
+
+        cfg.sections = dashy.build_sections([
+            K8sItem(name="new-svc", namespace="default", kind="Service",
+                    meta=K8sMeta(title="New Service", section="New Section",
+                                 icon="hl-new")),
+        ], sidecar_icons)
+        dashy.write_config(config_path, dashy.marshal_config(cfg))
+        cfg2 = dashy.load_config(config_path)
+        assert cfg2.pageInfo["title"] == "Test"
+        assert cfg2.appConfig["theme"] == "nord-frost"
+        assert len(cfg2.sections) == 1
+        assert cfg2.sections[0].name == "New Section"
+    finally:
+        os.unlink(config_path)
+
+
+def test_sections_have_changed():
+    s1 = [DashySection(name="A", items=[{"title": "X"}])]
+    s2 = [DashySection(name="A", items=[{"title": "X"}])]
+    assert not dashy.sections_have_changed(s1, s2)
+    s3 = [DashySection(name="A", items=[{"title": "Y"}])]
+    assert dashy.sections_have_changed(s1, s3)
+    s4 = [DashySection(name="A", items=[{"title": "X"}]),
+          DashySection(name="B", items=[{"title": "Y"}])]
+    assert dashy.sections_have_changed(s1, s4)
+
+
+def test_get_section_icon():
+    sidecar_icons = sidecar.get_section_icons()
+
+    assert dashy._get_section_icon(sidecar_icons, "Media & Entertainment") == "fas fa-photo-video"
+    assert dashy._get_section_icon(sidecar_icons, "Networking") == "fas fa-network-wired"
+    assert dashy._get_section_icon(sidecar_icons, "Custom Section") == "fas fa-folder"
+
+
+def test_write_config_file():
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
+        config_path = f.name
+    try:
+        cfg = DashyConfig(
+            pageInfo={"title": "Test", "description": "Test"},
+            appConfig={"theme": "test"},
+            sections=[DashySection(name="Section1", icon="fas fa-test",
+                                  items=[{"title": "Item1"}])],
+        )
+        dashy.write_config(config_path, dashy.marshal_config(cfg))
+        with open(config_path) as f:
+            content = f.read()
+        assert "pageInfo:" in content
+        assert "appConfig:" in content
+        assert "sections:" in content
+        assert "name: 'Section1'" in content
+        assert "title: 'Item1'" in content
+    finally:
+        os.unlink(config_path)
+
+
+def test_integration_full_workflow():
+    yaml_content = """pageInfo:
+  title: "Demo Homelab"
+  description: "Live Demo of Dashy"
+  navLinks:
+    - title: GitHub
+      path: https://github.com/Lissy93/dashy
+appConfig:
+  theme: nord-frost
+  customColors:
+    material-dark-original:
+      primary: '#f36558'
+      background: '#39434C'
+  enableErrorReporting: true
+  layout: auto
+  iconSize: medium
+sections: []
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
+        f.write(yaml_content)
+        config_path = f.name
+    try:
+        items = [
+            K8sItem(name="jellyfin", namespace="default", kind="Service",
+                    meta=K8sMeta(title="Jellyfin", section="Media & Entertainment",
+                                 icon="hl-jellyfin", url="https://jellyfin.local",
+                                 description="Media server")),
+            K8sItem(name="plex", namespace="default", kind="Service",
+                    meta=K8sMeta(title="Plex", section="Media & Entertainment",
+                                 icon="hl-plex")),
+            K8sItem(name="pihole", namespace="default", kind="Service",
+                    meta=K8sMeta(title="Pi-Hole", section="Networking",
+                                 description="DNS ad-blocking", icon="hl-pihole")),
+            K8sItem(name="opnsense", namespace="default", kind="Service",
+                    meta=K8sMeta(title="OPNSense", section="Networking",
+                                 description="Firewall and network config",
+                                 icon="hl-opnsense")),
+        ]
+        cfg = dashy.load_config(config_path)
+        sidecar_icons = sidecar.get_section_icons()
+        new_sections = dashy.build_sections(items, sidecar_icons)
+        assert dashy.sections_have_changed(cfg.sections, new_sections)
+        cfg.sections = new_sections
+        dashy.write_config(config_path, dashy.marshal_config(cfg))
+        cfg2 = dashy.load_config(config_path)
+        parsed = yaml.safe_load(open(config_path))
+        assert cfg2.pageInfo["title"] == "Demo Homelab"
+        assert parsed["appConfig"]["theme"] == "nord-frost"
+        assert parsed["appConfig"]["enableErrorReporting"] is True
+        assert len(parsed["sections"]) == 2
+        assert parsed["sections"][0]["name"] == "Media & Entertainment"
+        assert len(parsed["sections"][0]["items"]) == 2
+        assert parsed["sections"][0]["items"][0]["title"] == "Jellyfin"
+        assert parsed["sections"][0]["items"][0]["description"] == "Media server"
+        assert parsed["sections"][1]["name"] == "Networking"
+        assert len(parsed["sections"][1]["items"]) == 2
+    finally:
+        os.unlink(config_path)
+
+
+def test_extract_url_from_match():
+    """Test extracting hostname from Traefik IngressRoute match rules."""
+    # Single Host
+    assert Url.extract_url_from_match('Host(`opentunesource.com`)') == "opentunesource.com"
+
+    # Multiple Hosts - should return first
+    assert Url.extract_url_from_match(
+        'Host(`opentunesource.com`) || Host(`www.opentunesource.com`)'
+    ) == "opentunesource.com"
+
+    # With path match
+    assert Url.extract_url_from_match(
+        'Host(`example.com`) && Path(`/api`)'
+    ) == "example.com"
+
+    # With single quotes
+    assert Url.extract_url_from_match("Host('example.com')") == "example.com"
+
+    # Empty/None
+    assert Url.extract_url_from_match("") is None
+    # noinspection PyTypeChecker
+    assert Url.extract_url_from_match(None) is None
+
+    # No match pattern
+    assert Url.extract_url_from_match('Path(`/test`') is None
+
+
+def test_auto_detect_scheme():
+    """Test automatic http/https scheme detection."""
+    # Local URLs should default to http
+    assert Url.auto_detect_scheme("myapp.local") == "http://myapp.local"
+    assert Url.auto_detect_scheme("myapp.internal") == "http://myapp.internal"
+    assert Url.auto_detect_scheme("192.168.1.1") == "http://192.168.1.1"
+    assert Url.auto_detect_scheme("10.0.0.1") == "http://10.0.0.1"
+    assert Url.auto_detect_scheme("127.0.0.1") == "http://127.0.0.1"
+
+    # Public URLs should default to https
+    assert Url.auto_detect_scheme("example.com") == "https://example.com"
+    assert Url.auto_detect_scheme("opentunesource.com") == "https://opentunesource.com"
+    assert Url.auto_detect_scheme("www.example.com") == "https://www.example.com"
+    assert Url.auto_detect_scheme("dashy.example.com") == "https://dashy.example.com"
+
+    # URLs with explicit scheme should pass through
+    assert Url.auto_detect_scheme("https://example.com") == "https://example.com"
+    assert Url.auto_detect_scheme("http://example.com") == "http://example.com"
+    assert Url.auto_detect_scheme("http://myapp.local") == "http://myapp.local"
+    assert Url.auto_detect_scheme("https://myapp.local") == "https://myapp.local"
+
+    # URLs with path should detect scheme on host portion
+    assert Url.auto_detect_scheme("example.com/api") == "https://example.com/api"
+    assert Url.auto_detect_scheme("192.168.1.1:8080") == "http://192.168.1.1:8080"
+
+    # Empty/None
+    assert Url.auto_detect_scheme("") == ""
+
+
+def test_extract_ingress_route_url_traefik_match():
+    """Test extracting URL from Traefik IngressRoute spec using match pattern."""
+    ir = {
+        "spec": {
+            "routes": [
+                {
+                    "kind": "Rule",
+                    "match": "Host(`opentunesource.com`)",
+                }
+            ]
+        }
+    }
+    url = k8s.extract_ingress_route_url(ir)
+    assert url == "https://opentunesource.com"
+
+
+def test_extract_ingress_route_url_traefik_match_multiple_hosts():
+    """Test that first hostname is chosen when multiple hosts exist in match."""
+    ir = {
+        "spec": {
+            "routes": [
+                {
+                    "kind": "Rule",
+                    "match": "Host(`opentunesource.com`) || Host(`www.opentunesource.com`)",
+                }
+            ]
+        }
+    }
+    url = k8s.extract_ingress_route_url(ir)
+    assert url == "https://opentunesource.com"
+
+
+def test_extract_ingress_route_url_with_url_annotation():
+    """Test that annotation url takes precedence over match extraction."""
+    ir = {
+        "metadata": {
+            "name": "ingress",
+            "annotations": {
+                "dashy": """title: OpenTuneSource
+url: https://opentunesource.com
+description: Find and share ECU tunes
+icon: mdi-gauge
+section: Self Owned"""
+            }
+        },
+        "spec": {
+            "routes": [
+                {
+                    "kind": "Rule",
+                    "match": "Host(`opentunesource.com`) || Host(`www.opentunesource.com`)",
+                }
+            ]
+        }
+    }
+    # When url is in annotations, _extract_ingress_route_url won't be called
+    # because _extract_k8s_meta returns the url from the annotation
+    annotations = ir["metadata"]["annotations"]
+    meta = k8s.extract_k8s_meta(annotations)
+    assert meta.url == "https://opentunesource.com"
+    # But _extract_ingress_route_url should also work as fallback
+    url = k8s.extract_ingress_route_url(ir)
+    assert url == "https://opentunesource.com"
+
+
+def test_extract_ingress_route_url_local_host():
+    """Test that local hosts get http scheme from match pattern."""
+    ir = {
+        "spec": {
+            "routes": [
+                {
+                    "kind": "Rule",
+                    "match": "Host(`myapp.local`)",
+                }
+            ]
+        }
+    }
+    url = k8s.extract_ingress_route_url(ir)
+    assert url == "http://myapp.local"
+
+
+if __name__ == "__main__":
+    test_extract_k8s_meta()
+    test_extract_k8s_meta_yaml_block()
+    test_extract_k8s_meta_yaml_block_full()
+    test_extract_k8s_meta_block_vs_flat_priority()
+    test_extract_k8s_meta_block_invalid_yaml()
+    test_extract_k8s_meta_block_not_a_dict()
+    test_build_sections()
+    test_build_sections_empty()
+    test_build_sections_missing_section()
+    test_marshal_config()
+    test_preserve_appconfig()
+    test_sections_have_changed()
+    test_get_section_icon()
+    test_write_config_file()
+    test_integration_full_workflow()
+    test_extract_url_from_match()
+    test_auto_detect_scheme()
+    test_extract_ingress_route_url_traefik_match()
+    test_extract_ingress_route_url_traefik_match_multiple_hosts()
+    test_extract_ingress_route_url_with_url_annotation()
+    test_extract_ingress_route_url_local_host()
+    print("\nAll tests passed!")
