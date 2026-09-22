@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from kubernetes import client, config
 
-from src.models.Url import Url
+from src.Url import Url
 
 @dataclass
 class K8sMeta:

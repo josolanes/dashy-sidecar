@@ -50,11 +50,11 @@ from logging import exception
 
 try:
     # noinspection PyUnusedImports
-    from src.models.K8s import K8s, K8sItem, K8sMeta
+    from src.K8s import K8s, K8sItem, K8sMeta
     # noinspection PyUnusedImports
-    from src.models.Sidecar import SidecarConfig, Sidecar
+    from src.Sidecar import SidecarConfig, Sidecar
     # noinspection PyUnusedImports
-    from src.models.Dashy import Dashy, DashySection, DashyConfig
+    from src.Dashy import Dashy, DashySection, DashyConfig
 
     sidecar = Sidecar(logging)
     k8s = K8s(logging)
@@ -91,10 +91,11 @@ def collect_all() -> List[K8sItem]:
 # Main loop
 # ---------------------------------------------------------------------------
 
-def run_loop(conf_path: str, interval: int) -> None:
+def run_loop(dashy_conf_path: str, sidecar_conf_path: str, interval: int) -> None:
     """Main sync loop."""
     logging.info("Starting Dashy sidecar")
-    logging.info("  Config path : %s", conf_path)
+    logging.info("  Dashy config path : %s", dashy_conf_path)
+    logging.info("  Sidecar config path : %s", sidecar_conf_path)
     logging.info("  Sync interval: %ds", interval)
 
     if not k8s.HAS_K8S:
@@ -108,13 +109,13 @@ def run_loop(conf_path: str, interval: int) -> None:
         logging.error("Cannot load Kubernetes config: %s", e)
         sys.exit(1)
 
-    section_icons = sidecar.get_section_icons()
+    sidecar_conf = sidecar.load_config(sidecar_conf_path)
 
     # Initial sync
-    dashy.sync(conf_path, collect_all(), section_icons)
+    dashy.sync(dashy_conf_path, collect_all(), sidecar_conf)
 
     # Periodic sync
-    timer = threading.Timer(interval, run_loop, [conf_path, interval])
+    timer = threading.Timer(interval, run_loop, [dashy_conf_path, sidecar_conf_path, interval])
     timer.daemon = True
     timer.start()
 
@@ -129,9 +130,12 @@ def run_loop(conf_path: str, interval: int) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Kubernetes sidecar for Dashy")
 
-    parser.add_argument("--conf",
+    parser.add_argument("--dashy-conf",
                         default=os.environ.get("DASHY_CONF", "/app/user-data/conf.yml"),
                         help="Path to Dashy conf.yml")
+    parser.add_argument("--sidecar-conf",
+                        default=os.environ.get("SIDECAR_CONF", "/app/user-data/sidecar.yml"),
+                        help="Path to Sidecar conf.yml")
     parser.add_argument("--interval",
                         type=int,
                         default=int(os.environ.get("SYNC_INTERVAL", "60")),
@@ -156,7 +160,7 @@ def main() -> None:
         stream=sys.stdout
     )
 
-    run_loop(args.conf, args.interval)
+    run_loop(args.dashy_conf, args.sidecar_conf, args.interval)
 
 
 if __name__ == "__main__":

@@ -218,3 +218,6 @@ __marimo__/
 .streamlit/secrets.toml
 /tests/config
 /tests/dashy.yml
+/tests/dashy.yaml
+/tests/k8s_config
+.idea

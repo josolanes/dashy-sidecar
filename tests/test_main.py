@@ -2,12 +2,14 @@
 """Unit tests for the Dashy Kubernetes sidecar."""
 
 import sys
+import logging
+
 from pathlib import Path
 
-from src.models.K8s import K8s, K8sItem, K8sMeta
-from src.models.Sidecar import Sidecar
-from src.models.Dashy import Dashy, DashySection, DashyConfig
-from src.models.Url import Url
+from src.K8s import K8s, K8sItem, K8sMeta
+from src.Sidecar import Sidecar
+from src.Dashy import Dashy, DashySection, DashyConfig
+from src.Url import Url
 
 sys.path.append(str(Path(__file__).parent.parent / 'src'))
 
@@ -15,9 +17,9 @@ import os
 import tempfile
 import yaml
 
-k8s = K8s(None)
-dashy = Dashy(None)
-sidecar = Sidecar(None)
+k8s = K8s(logging)
+dashy = Dashy(logging)
+sidecar = Sidecar(logging)
 
 def test_extract_k8s_meta():
     labels = {
@@ -116,9 +118,9 @@ def test_build_sections():
                 meta=K8sMeta(title="Unlabelled", section="", icon="hl-something")),
     ]
 
-    sidecar_icons = sidecar.get_section_icons()
+    config = sidecar.load_config("")
 
-    sections = dashy.build_sections(items, sidecar_icons)
+    sections = dashy.build_sections(items, config)
     assert len(sections) == 3
     assert sections[0].name == "Media & Entertainment"
     assert sections[1].name == "Networking"
@@ -134,9 +136,9 @@ def test_build_sections():
 
 
 def test_build_sections_empty():
-    sidecar_icons = sidecar.get_section_icons()
+    config = sidecar.load_config("")
 
-    assert dashy.build_sections([], sidecar_icons) == []
+    assert dashy.build_sections([], config) == []
 
 
 def test_build_sections_missing_section():
@@ -146,9 +148,9 @@ def test_build_sections_missing_section():
         K8sItem(name="svc2", namespace="default", kind="Service",
                 meta=K8sMeta(url="https://example.com", icon="hl-icon")),
     ]
-    sidecar_icons = sidecar.get_section_icons()
+    config = sidecar.load_config("")
 
-    sections = dashy.build_sections(items, sidecar_icons)
+    sections = dashy.build_sections(items, config)
     assert len(sections) == 2
     smap = {s.name: s for s in sections}
     assert "Test" in smap
@@ -259,13 +261,13 @@ sections:
         assert cfg.pageInfo["title"] == "Test"
         assert cfg.appConfig["theme"] == "nord-frost"
 
-        sidecar_icons = sidecar.get_section_icons()
+        config = sidecar.load_config("")
 
         cfg.sections = dashy.build_sections([
             K8sItem(name="new-svc", namespace="default", kind="Service",
                     meta=K8sMeta(title="New Service", section="New Section",
                                  icon="hl-new")),
-        ], sidecar_icons)
+        ], config)
         dashy.write_config(config_path, dashy.marshal_config(cfg))
         cfg2 = dashy.load_config(config_path)
         assert cfg2.pageInfo["title"] == "Test"
@@ -285,14 +287,6 @@ def test_sections_have_changed():
     s4 = [DashySection(name="A", items=[{"title": "X"}]),
           DashySection(name="B", items=[{"title": "Y"}])]
     assert dashy.sections_have_changed(s1, s4)
-
-
-def test_get_section_icon():
-    sidecar_icons = sidecar.get_section_icons()
-
-    assert dashy._get_section_icon(sidecar_icons, "Media & Entertainment") == "fas fa-photo-video"
-    assert dashy._get_section_icon(sidecar_icons, "Networking") == "fas fa-network-wired"
-    assert dashy._get_section_icon(sidecar_icons, "Custom Section") == "fas fa-folder"
 
 
 def test_write_config_file():
@@ -356,8 +350,8 @@ sections: []
                                  icon="hl-opnsense")),
         ]
         cfg = dashy.load_config(config_path)
-        sidecar_icons = sidecar.get_section_icons()
-        new_sections = dashy.build_sections(items, sidecar_icons)
+        config = sidecar.load_config("")
+        new_sections = dashy.build_sections(items, config)
         assert dashy.sections_have_changed(cfg.sections, new_sections)
         cfg.sections = new_sections
         dashy.write_config(config_path, dashy.marshal_config(cfg))
@@ -526,7 +520,6 @@ if __name__ == "__main__":
     test_marshal_config()
     test_preserve_appconfig()
     test_sections_have_changed()
-    test_get_section_icon()
     test_write_config_file()
     test_integration_full_workflow()
     test_extract_url_from_match()
