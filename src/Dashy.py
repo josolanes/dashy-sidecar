@@ -13,6 +13,7 @@ class DashySection:
     """A Dashy section."""
     name: str
     icon: str = ""
+    order: int = 999
     display_data: Dict[str, Any] = field(default_factory=lambda: {
         "sortBy": "",
         "cols": 0,
@@ -102,6 +103,7 @@ class Dashy:
             sections.append(DashySection(
                 name=name,
                 icon=sidecar_sections[name].icon if name in sidecar_sections else "fas fa-folder",
+                order=sidecar_sections[name].order if name in sidecar_sections else 999,
                 display_data=sidecar_sections[name].display_data if name in sidecar_sections else {
                     "sortBy": "default",
                     "cols": 2,
@@ -109,6 +111,8 @@ class Dashy:
                 },
                 items=dashy_items,
             ))
+
+        sections.sort(key=lambda s: (s.order, s.name))
 
         return sections
 
@@ -121,6 +125,8 @@ class Dashy:
             if os_.name != ns_.name:
                 return True
             if os_.icon != ns_.icon:
+                return True
+            if os_.order != ns_.order:
                 return True
             if os_.display_data.get('sortBy') != ns_.display_data.get('sortBy'):
                 return True

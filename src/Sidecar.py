@@ -44,6 +44,7 @@ class Sidecar:
                 sec = DashySection(
                     name=rs.get("name", ""),
                     icon=rs.get("icon", "fas fa-folder"),
+                    order=rs.get("order", 999),
                     display_data=rs.get("displayData", {}),
                 )
                 cfg[sec.name] = sec
