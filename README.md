@@ -157,20 +157,22 @@ For ``IngressRoute`` custom resources that lack an explicit ``dashy.url``, the s
 
 ## Environment Variables
 
-| Variable         | Default              | Description                      |
-|------------------|----------------------|----------------------------------|
-| ``DASHY_CONF``     | ``/app/user-data/conf.yml`` | Path to the Dashy config file  |
-| ``SYNC_INTERVAL``  | ``60``                 | Seconds between config syncs    |
-| ``KUBECONFIG``     | (in-cluster)         | Path to a kubeconfig file       |
+| Variable          | Default                        | Description                     |
+|-------------------|--------------------------------|---------------------------------|
+| ``DASHY_CONF``    | ``/app/user-data/conf.yml``    | Path to the Dashy config file   |
+| ``SIDECAR_CONF``  | ``/app/user-data/sidecar.yml`` | Path to the Sidecar config file |
+| ``SYNC_INTERVAL`` | ``60``                         | Seconds between config syncs    |
+| ``KUBECONFIG``    | (in-cluster)                   | Path to a kubeconfig file       |
 
 ## CLI Arguments
 
 The sidecar binary supports the following flags (which also map to environment variables above):
 
 ```
---conf           Path to Dashy conf.yml
+--dashy-conf     Path to Dashy conf.yml
+--sidecar-conf   Path to Sidecar sidecar.yml
 --interval       Sync interval in seconds (default: 60)
---kubeconfig     Path to kubeconfig file
+--kubeconfig     Path to kubeconfig file (default: in-cluster)
 -v, --verbose    Enable verbose (debug) logging
 ```
 
@@ -280,16 +282,57 @@ metadata:
 
 This produces a Dashy config with three sections — **Media & Entertainment** (Jellyfin), **Networking** (Pi-hole), and **Network Monitoring** (Grafana) — automatically maintained as you add, remove, or modify annotated resources.
 
+## Sample Sidecar conf file:
+
+```yaml
+sections:
+  - name: Home Control
+    icon: fas fa-house-signal
+    displayData:
+      sortBy: default
+      cols: 2
+      itemCountX: 6
+  - name: Media & Entertainment
+    icon: fas fa-photo-video
+    displayData:
+      sortBy: default
+      cols: 2
+      itemCountX: 6
+  - name: Network Monitoring
+    icon: fas fa-tachometer-alt-fast
+    displayData:
+      sortBy: default
+      cols: 2
+      itemCountX: 6
+  - name: Productivity
+    icon: fas fa-bookmark
+    displayData:
+      sortBy: default
+      cols: 2
+      itemCountX: 6
+  - name: Self Owned
+    icon: fas fa-folder
+    displayData:
+      sortBy: default
+      cols: 2
+      itemCountX: 6
+  - name: System Monitoring
+    icon: fas fa-monitor-heart-rate
+    displayData:
+      sortBy: default
+      cols: 2
+      itemCountX: 6
+```
+
 ## Build & Run Locally
 
 ```bash
 pip install -r requirements.txt
-python main.py --kubeconfig tests/config --conf tests/dashy.yml
+python main.py --kubeconfig tests/k8s_config --dashy-conf tests/dashy.yaml --sidecar-conf tests/sidecar.yaml --interval 10
 ```
 
 Or build a Docker image:
 
 ```bash
 docker build -t dashy-sidecar .
-```
 ```

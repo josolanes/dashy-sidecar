@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
-from src.models.K8s import K8sItem
+from src.K8s import K8sItem
 
 @dataclass
 class DashySection:
@@ -14,9 +14,9 @@ class DashySection:
     name: str
     icon: str = ""
     display_data: Dict[str, Any] = field(default_factory=lambda: {
-        "sortBy": "default",
-        "cols": 2,
-        "itemCountX": 6,
+        "sortBy": "",
+        "cols": 0,
+        "itemCountX": 0,
     })
     items: List[Dict[str, str]] = field(default_factory=list)
 
@@ -60,11 +60,7 @@ class Dashy:
                     sec = DashySection(
                         name=rs.get("name", ""),
                         icon=rs.get("icon", ""),
-                        display_data=rs.get("displayData", {
-                            "sortBy": "default",
-                            "cols": 2,
-                            "itemCountX": 6,
-                        }) or {},
+                        display_data=rs.get("displayData", {}) or {}
                     )
                     raw_items = rs.get("items", []) or []
                     for ri in raw_items:
@@ -76,7 +72,7 @@ class Dashy:
 
         return cfg
 
-    def build_sections(self, items: List[K8sItem], section_icons: Dict[str, str]) -> List[DashySection]:
+    def build_sections(self, items: List[K8sItem], sidecar_sections: Dict[str, DashySection]) -> List[DashySection]:
         """Group collected items into Dashy sections."""
         groups: Dict[str, List[K8sItem]] = {}
         for item in items:
@@ -88,7 +84,7 @@ class Dashy:
 
         for name in section_names:
             section_items = groups[name]
-            section_items.sort(key=lambda i: i.name)
+            section_items.sort(key=lambda i: i.meta.title)
 
             dashy_items: List[Dict[str, str]] = []
             for it in section_items:
@@ -105,15 +101,16 @@ class Dashy:
 
             sections.append(DashySection(
                 name=name,
-                icon=self._get_section_icon(section_icons, name),
+                icon=sidecar_sections[name].icon if name in sidecar_sections else "fas fa-folder",
+                display_data=sidecar_sections[name].display_data if name in sidecar_sections else {
+                    "sortBy": "default",
+                    "cols": 2,
+                    "itemCountX": 6,
+                },
                 items=dashy_items,
             ))
 
         return sections
-
-    def _get_section_icon(self, section_icons: Dict[str, str], section_name: str) -> str:
-        """Get the icon for a section, or the default icon if not found."""
-        return section_icons[section_name] if section_name in section_icons else "fas fa-folder"
 
     def sections_have_changed(self, old: List[DashySection], new: List[DashySection]) -> bool:
         """Check if the section content has changed (ignoring displayData)."""
@@ -122,6 +119,14 @@ class Dashy:
 
         for os_, ns_ in zip(old, new):
             if os_.name != ns_.name:
+                return True
+            if os_.icon != ns_.icon:
+                return True
+            if os_.display_data.get('sortBy') != ns_.display_data.get('sortBy'):
+                return True
+            if os_.display_data.get('cols') != ns_.display_data.get('cols'):
+                return True
+            if os_.display_data.get('itemCountX') != ns_.display_data.get('itemCountX'):
                 return True
             if os_.items != ns_.items:
                 return True
@@ -222,7 +227,7 @@ class Dashy:
             f.write(config_str)
         os.replace(tmp, path)
 
-    def sync(self, conf_path: str, items: List[K8sItem], section_icons: Dict[str, str]) -> None:
+    def sync(self, conf_path: str, items: List[K8sItem], sidecar_sections: Dict[str, DashySection]) -> None:
         """Perform a single sync cycle."""
         self.logging.info("─── Syncing Dashy config ───")
 
@@ -232,7 +237,7 @@ class Dashy:
             return
 
         # Build sections
-        new_sections = self.build_sections(items, section_icons)
+        new_sections = self.build_sections(items, sidecar_sections)
         self.logging.info("Built %d sections with %d total items", len(new_sections), len(items))
 
         # Load existing config

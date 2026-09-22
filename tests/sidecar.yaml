@@ -1,0 +1,43 @@
+sections:
+  - name: AI
+    icon: sh-openai
+    displayData:
+      sortBy: default
+      cols: 1
+      itemCountX: 3
+  - name: Home Control
+    icon: fas fa-house-signal
+    displayData:
+      sortBy: default
+      cols: 2
+      itemCountX: 6
+  - name: Media & Entertainment
+    icon: fas fa-photo-video
+    displayData:
+      sortBy: default
+      cols: 2
+      itemCountX: 6
+  - name: Network Monitoring
+    icon: fas fa-tachometer-alt-fast
+    displayData:
+      sortBy: default
+      cols: 2
+      itemCountX: 6
+  - name: Productivity
+    icon: fas fa-bookmark
+    displayData:
+      sortBy: default
+      cols: 2
+      itemCountX: 6
+  - name: Self Owned
+    icon: fas fa-folder
+    displayData:
+      sortBy: default
+      cols: 2
+      itemCountX: 6
+  - name: System Monitoring
+    icon: fas fa-monitor-heart-rate
+    displayData:
+      sortBy: default
+      cols: 2
+      itemCountX: 6
