@@ -80,8 +80,14 @@ class Dashy:
             section_name = item.meta.section or "Unnamed"
             groups.setdefault(section_name, []).append(item)
 
-        section_names = sorted(groups.keys())
+        groups_keys = list(sorted(groups.keys()))
+        sidecar_sections_keys = list(sidecar_sections.keys())
+
+        section_names = list(dict.fromkeys(sidecar_sections_keys + groups_keys))
         sections: List[DashySection] = []
+
+        sections_ordered: List[DashySection] = []
+        sections_unordered: List[DashySection] = []
 
         for name in section_names:
             section_items = groups[name]
@@ -100,19 +106,35 @@ class Dashy:
                     d["icon"] = it.meta.icon
                 dashy_items.append(d)
 
-            sections.append(DashySection(
-                name=name,
-                icon=sidecar_sections[name].icon if name in sidecar_sections else "fas fa-folder",
-                order=sidecar_sections[name].order if name in sidecar_sections else 999,
-                display_data=sidecar_sections[name].display_data if name in sidecar_sections else {
-                    "sortBy": "default",
-                    "cols": 2,
-                    "itemCountX": 6,
-                },
-                items=dashy_items,
-            ))
+            if name in sidecar_sections and sidecar_sections[name].order is not None:
+                sections_ordered.append(DashySection(
+                    name=name,
+                    icon=sidecar_sections[name].icon if name in sidecar_sections else "fas fa-folder",
+                    order=sidecar_sections[name].order if name in sidecar_sections else 999,
+                    display_data=sidecar_sections[name].display_data if name in sidecar_sections else {
+                        "sortBy": "default",
+                        "cols": 2,
+                        "itemCountX": 6,
+                    },
+                    items=dashy_items,
+                ))
+            else:
+                sections_unordered.append(DashySection(
+                    name=name,
+                    icon=sidecar_sections[name].icon if name in sidecar_sections else "fas fa-folder",
+                    order=999,
+                    display_data=sidecar_sections[name].display_data if name in sidecar_sections else {
+                        "sortBy": "default",
+                        "cols": 2,
+                        "itemCountX": 6,
+                    },
+                    items=dashy_items,
+                ))
 
-        sections.sort(key=lambda s: (s.order, s.name))
+        sections_ordered.sort(key=lambda s: s.order)
+
+        sections.extend(sections_ordered)
+        sections.extend(sections_unordered)
 
         return sections
 
@@ -125,8 +147,6 @@ class Dashy:
             if os_.name != ns_.name:
                 return True
             if os_.icon != ns_.icon:
-                return True
-            if os_.order != ns_.order:
                 return True
             if os_.display_data.get('sortBy') != ns_.display_data.get('sortBy'):
                 return True

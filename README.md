@@ -330,7 +330,11 @@ sections:
       itemCountX: 6
 ```
 
-In the above example, these sections are configured per dashy config options with an additional optional sidecar property `order` that determines the order sections appear in the Dashy UI. Omitting `order` from a section will cause it to be placed at the end of the list. However, if `order` isn't used at all sections will be ordered by name.
+In the above example, these sections are configured per dashy config options with an additional optional sidecar property `order`
+
+Sidecar supports ordering Dashy Sections in the following ways:
+* Sections with `order` will come first and will be ordered in numeric order per their `order` value
+* Default is "natural" order, or the order of Sections in the Sidecar config file. Sections not in the config file will show in Dashy at the end with default settings
 
 ## Build & Run Locally
 
