@@ -90,6 +90,9 @@ class Dashy:
         sections_unordered: List[DashySection] = []
 
         for name in section_names:
+            if name not in groups:
+                continue
+
             section_items = groups[name]
             section_items.sort(key=lambda i: i.meta.title)
 
