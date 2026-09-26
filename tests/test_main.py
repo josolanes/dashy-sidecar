@@ -6,9 +6,10 @@ import logging
 
 from pathlib import Path
 
+from src.DynamicObject import DynamicObject
 from src.K8s import K8s, K8sItem, K8sMeta
 from src.Sidecar import Sidecar
-from src.Dashy import Dashy, DashySection, DashyConfig
+from src.Dashy import Dashy, DashyConfig
 from src.Url import Url
 
 sys.path.append(str(Path(__file__).parent.parent / 'src'))
@@ -165,6 +166,23 @@ def test_build_sections_missing_section():
 
 
 def test_marshal_config():
+    section_1 = DynamicObject()
+    section_1.name = "Media & Entertainment"
+    section_1.icon = "fas fa-photo-video"
+    section_1.display_data = {"sortBy": "default", "cols": 2, "itemCountX": 6}
+    section_1.items = [
+        {"title": "Jellyfin", "icon": "hl-jellyfin", "url": "https://jellyfin.local"},
+        {"title": "Plex", "icon": "hl-plex"}
+    ]
+
+    section_2 = DynamicObject()
+    section_2.name = "Networking"
+    section_2.icon = "fas fa-network-wired"
+    section_2.display_data = {"sortBy": "default", "cols": 2, "itemCountX": 6}
+    section_2.items = [
+        {"title": "Pi-Hole", "description": "DNS ad-blocking", "icon": "hl-pihole"}
+    ]
+
     cfg = DashyConfig(
         pageInfo={
             "title": "Demo Homelab",
@@ -186,25 +204,7 @@ def test_marshal_config():
             "layout": "auto",
             "iconSize": "medium",
         },
-        sections=[
-            DashySection(
-                name="Media & Entertainment",
-                icon="fas fa-photo-video",
-                display_data={"sortBy": "default", "cols": 2, "itemCountX": 6},
-                items=[
-                    {"title": "Jellyfin", "icon": "hl-jellyfin", "url": "https://jellyfin.local"},
-                    {"title": "Plex", "icon": "hl-plex"},
-                ],
-            ),
-            DashySection(
-                name="Networking",
-                icon="fas fa-network-wired",
-                display_data={"sortBy": "default", "cols": 2, "itemCountX": 6},
-                items=[
-                    {"title": "Pi-Hole", "description": "DNS ad-blocking", "icon": "hl-pihole"},
-                ],
-            ),
-        ],
+        sections=[ section_1, section_2 ]
     )
     yaml_str = dashy.marshal_config(cfg)
     parsed = yaml.safe_load(yaml_str)
@@ -279,13 +279,13 @@ sections:
 
 
 def test_sections_have_changed():
-    s1 = [DashySection(name="A", items=[{"title": "X"}])]
-    s2 = [DashySection(name="A", items=[{"title": "X"}])]
+    s1 = [DynamicObject({"name": "A", "items": [{"title": "X"}]})]
+    s2 = [DynamicObject({"name": "A", "items": [{"title": "X"}]})]
     assert not dashy.sections_have_changed(s1, s2)
-    s3 = [DashySection(name="A", items=[{"title": "Y"}])]
+    s3 = [DynamicObject({"name": "A", "items": [{"title": "Y"}]})]
     assert dashy.sections_have_changed(s1, s3)
-    s4 = [DashySection(name="A", items=[{"title": "X"}]),
-          DashySection(name="B", items=[{"title": "Y"}])]
+    s4 = [DynamicObject({"name": "A", "items": [{"title": "X"}]}),
+          DynamicObject({"name": "B", "items": [{"title": "Y"}]})]
     assert dashy.sections_have_changed(s1, s4)
 
 
@@ -296,8 +296,8 @@ def test_write_config_file():
         cfg = DashyConfig(
             pageInfo={"title": "Test", "description": "Test"},
             appConfig={"theme": "test"},
-            sections=[DashySection(name="Section1", icon="fas fa-test",
-                                  items=[{"title": "Item1"}])],
+            sections=[DynamicObject({"name": "Section1", "icon": "fas fa-test",
+                                  "items": [{"title": "Item1"}]})],
         )
         dashy.write_config(config_path, dashy.marshal_config(cfg))
         with open(config_path) as f:

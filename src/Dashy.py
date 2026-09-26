@@ -7,27 +7,14 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
 from src.K8s import K8sItem
-
-@dataclass
-class DashySection:
-    """A Dashy section."""
-    name: str
-    icon: str = ""
-    order: int = 999
-    display_data: Dict[str, Any] = field(default_factory=lambda: {
-        "sortBy": "",
-        "cols": 0,
-        "itemCountX": 0,
-    })
-    items: List[Dict[str, str]] = field(default_factory=list)
-
+from src.DynamicObject import DynamicObject
 
 @dataclass
 class DashyConfig:
     """Full Dashy configuration."""
     pageInfo: Dict[str, Any] = field(default_factory=lambda: {"title": "", "description": ""})
     appConfig: Dict[str, Any] = field(default_factory=dict)
-    sections: List[DashySection] = field(default_factory=list)
+    sections: List[DynamicObject] = field(default_factory=list)
     raw: Dict[str, Any] = field(default_factory=dict)
 
 class Dashy:
@@ -58,14 +45,15 @@ class Dashy:
             raw_sections = data.get("sections", []) or []
             for rs in raw_sections:
                 if isinstance(rs, dict):
-                    sec = DashySection(
-                        name=rs.get("name", ""),
-                        icon=rs.get("icon", ""),
-                        display_data=rs.get("displayData", {}) or {}
-                    )
+                    sec = DynamicObject()
+                    sec.name = rs.get("name", "")
+                    sec.icon = rs.get("icon", "")
+                    sec.display_data = rs.get("displayData", {}) or {}
                     raw_items = rs.get("items", []) or []
                     for ri in raw_items:
                         if isinstance(ri, dict):
+                            if sec.items is None:
+                                sec.items = []
                             sec.items.append(ri)
                     cfg.sections.append(sec)
         else:
@@ -73,7 +61,7 @@ class Dashy:
 
         return cfg
 
-    def build_sections(self, items: List[K8sItem], sidecar_sections: Dict[str, DashySection]) -> List[DashySection]:
+    def build_sections(self, items: List[K8sItem], sidecar_sections: Dict[str, DynamicObject]) -> List[DynamicObject]:
         """Group collected items into Dashy sections."""
         groups: Dict[str, List[K8sItem]] = {}
         for item in items:
@@ -84,10 +72,8 @@ class Dashy:
         sidecar_sections_keys = list(sidecar_sections.keys())
 
         section_names = list(dict.fromkeys(sidecar_sections_keys + groups_keys))
-        sections: List[DashySection] = []
 
-        sections_ordered: List[DashySection] = []
-        sections_unordered: List[DashySection] = []
+        sections: List[DynamicObject] = []
 
         for name in section_names:
             if name not in groups:
@@ -109,56 +95,34 @@ class Dashy:
                     d["icon"] = it.meta.icon
                 dashy_items.append(d)
 
-            if name in sidecar_sections and sidecar_sections[name].order is not None:
-                sections_ordered.append(DashySection(
-                    name=name,
-                    icon=sidecar_sections[name].icon if name in sidecar_sections else "fas fa-folder",
-                    order=sidecar_sections[name].order if name in sidecar_sections else 999,
-                    display_data=sidecar_sections[name].display_data if name in sidecar_sections else {
-                        "sortBy": "default",
-                        "cols": 2,
-                        "itemCountX": 6,
-                    },
-                    items=dashy_items,
-                ))
-            else:
-                sections_unordered.append(DashySection(
-                    name=name,
-                    icon=sidecar_sections[name].icon if name in sidecar_sections else "fas fa-folder",
-                    order=999,
-                    display_data=sidecar_sections[name].display_data if name in sidecar_sections else {
-                        "sortBy": "default",
-                        "cols": 2,
-                        "itemCountX": 6,
-                    },
-                    items=dashy_items,
-                ))
+            section = DynamicObject()
+            section.name = name
+            section.icon = sidecar_sections[name].icon if name in sidecar_sections else "fas fa-folder"
+            section.display_data = sidecar_sections[name].display_data if name in sidecar_sections else {
+                "sortBy": "default",
+                "cols": 2,
+                "itemCountX": 6,
+            }
+            section.items = dashy_items
 
-        sections_ordered.sort(key=lambda s: s.order)
-
-        sections.extend(sections_ordered)
-        sections.extend(sections_unordered)
+            sections.append(section)
 
         return sections
 
-    def sections_have_changed(self, old: List[DashySection], new: List[DashySection]) -> bool:
+    def sections_have_changed(self, old: List[DynamicObject], new: List[DynamicObject]) -> bool:
         """Check if the section content has changed (ignoring displayData)."""
         if len(old) != len(new):
             return True
 
         for os_, ns_ in zip(old, new):
-            if os_.name != ns_.name:
-                return True
-            if os_.icon != ns_.icon:
-                return True
-            if os_.display_data.get('sortBy') != ns_.display_data.get('sortBy'):
-                return True
-            if os_.display_data.get('cols') != ns_.display_data.get('cols'):
-                return True
-            if os_.display_data.get('itemCountX') != ns_.display_data.get('itemCountX'):
-                return True
-            if os_.items != ns_.items:
-                return True
+            keys = list(dict.fromkeys(list(os_.keys()) + list(ns_.keys())))
+
+            for key in keys:
+                if key not in os_.__dict__ or key not in ns_.__dict__:
+                    return True
+
+                if os_.__dict__[key] != ns_.__dict__[key]:
+                    return True
 
         return False
 
@@ -218,12 +182,13 @@ class Dashy:
 
                 # displayData
                 dd = sec.display_data
-                lines.append("    displayData:")
-                lines.append(f"      sortBy: {_escape(dd.get('sortBy', 'default'))}")
-                lines.append(f"      cols: {dd.get('cols', 2)}")
-                lines.append(f"      itemCountX: {dd.get('itemCountX', 6)}")
-                if dd.get("collapsed"):
-                    lines.append("      collapsed: true")
+                if dd is not None:
+                    lines.append("    displayData:")
+                    lines.append(f"      sortBy: {_escape(dd.get('sortBy', 'default'))}")
+                    lines.append(f"      cols: {dd.get('cols', 2)}")
+                    lines.append(f"      itemCountX: {dd.get('itemCountX', 6)}")
+                    if dd.get("collapsed"):
+                        lines.append("      collapsed: true")
 
                 # items
                 lines.append("    items:")
@@ -256,7 +221,7 @@ class Dashy:
             f.write(config_str)
         os.replace(tmp, path)
 
-    def sync(self, conf_path: str, items: List[K8sItem], sidecar_sections: Dict[str, DashySection]) -> None:
+    def sync(self, conf_path: str, items: List[K8sItem], sidecar_sections: Dict[str, DynamicObject]) -> None:
         """Perform a single sync cycle."""
         self.logging.info("─── Syncing Dashy config ───")
 

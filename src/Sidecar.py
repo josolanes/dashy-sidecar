@@ -7,12 +7,13 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, List
 
-from src.Dashy import DashySection
+from src.DynamicObject import DynamicObject
+
 
 @dataclass
 class SidecarConfig:
     """Sidecar configuration."""
-    sections: List[DashySection] = field(default_factory=list)
+    sections: List[DynamicObject] = field(default_factory=list)
 
 class Sidecar:
     log = logging
@@ -21,7 +22,7 @@ class Sidecar:
     def __init__(self, log):
         self.log = log
 
-    def load_config(self, path: str) -> Dict[str, DashySection]:
+    def load_config(self, path: str) -> Dict[str, DynamicObject]:
         """Load the existing Sidecar configuration file."""
         cfg = {}
 
@@ -41,12 +42,10 @@ class Sidecar:
             # Parse sections if present
             raw_sections = data.get("sections", []) or []
             for rs in raw_sections:
-                sec = DashySection(
-                    name=rs.get("name", ""),
-                    icon=rs.get("icon", "fas fa-folder"),
-                    order=rs.get("order", 999),
-                    display_data=rs.get("displayData", {}),
-                )
+                sec = DynamicObject()
+                sec.name=rs.get("name", "")
+                sec.icon=rs.get("icon", "fas fa-folder")
+                sec.display_data=rs.get("displayData", {})
                 cfg[sec.name] = sec
         else:
             cfg = self._default_sections()
@@ -54,54 +53,28 @@ class Sidecar:
         return cfg
 
     @staticmethod
-    def _default_sections() -> Dict[str, DashySection]:
-        return {
-            "Media & Entertainment": DashySection(
-                name="Media & Entertainment",
-                icon="fas fa-photo-video",
-                display_data={
-                    "sortBy": "default",
-                    "cols": 2,
-                    "itemCountX": 6
-                }),
-            "Networking": DashySection(
-                name="Networking",
-                icon="fas fa-network-wired",
-                display_data={
-                    "sortBy": "default",
-                    "cols": 2,
-                    "itemCountX": 6
-                }),
-            "Network Monitoring": DashySection(
-                name="Network Monitoring",
-                icon="fas fa-tachometer-alt-fast",
-                display_data={
-                    "sortBy": "default",
-                    "cols": 2,
-                    "itemCountX": 6
-                }),
-            "System Monitoring": DashySection(
-                name="System Monitoring",
-                icon="fas fa-monitor-heart-rate",
-                display_data={
-                    "sortBy": "default",
-                    "cols": 2,
-                    "itemCountX": 6
-                }),
-            "Home Control": DashySection(
-                name="Home Control",
-                icon="fas fa-house-signal",
-                display_data={
-                    "sortBy": "default",
-                    "cols": 2,
-                    "itemCountX": 6
-                }),
-            "Productivity": DashySection(
-                name="Productivity",
-                icon="fas fa-bookmark",
-                display_data={
-                    "sortBy": "default",
-                    "cols": 2,
-                    "itemCountX": 6
-                })
+    def _default_sections() -> Dict[str, DynamicObject]:
+        default_icons: Dict[str, str] = {
+            "Media & Entertainment": "fas fa-photo-video",
+            "Networking": "fas fa-network-wired",
+            "Network Monitoring": "fas fa-tachometer-alt-fast",
+            "System Monitoring": "fas fa-monitor-heart-rate",
+            "Home Control": "fas fa-house-signal",
+            "Productivity": "fas fa-bookmark"
         }
+
+        defaults: Dict[str, DynamicObject] = {}
+
+        for name, icon in default_icons.items():
+            tmp = DynamicObject()
+            tmp.name = name
+            tmp.icon = icon
+            tmp.display_data = {
+                "sortBy": "default",
+                "cols": 2,
+                "itemCountX": 6
+            }
+
+            defaults[name] = tmp
+
+        return defaults
