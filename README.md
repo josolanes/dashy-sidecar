@@ -288,53 +288,43 @@ This produces a Dashy config with three sections — **Media & Entertainment** (
 sections:
   - name: Home Control
     icon: fas fa-house-signal
-    order: 2
     displayData:
       sortBy: default
       cols: 2
       itemCountX: 6
   - name: Media & Entertainment
     icon: fas fa-photo-video
-    order: 4
     displayData:
       sortBy: default
       cols: 2
       itemCountX: 6
   - name: Network Monitoring
     icon: fas fa-tachometer-alt-fast
-    order: 6
     displayData:
       sortBy: default
       cols: 2
       itemCountX: 6
   - name: Productivity
     icon: fas fa-bookmark
-    order: 1
     displayData:
       sortBy: default
       cols: 2
       itemCountX: 6
   - name: Self Owned
     icon: fas fa-folder
-    order: 3
     displayData:
       sortBy: default
       cols: 2
       itemCountX: 6
   - name: System Monitoring
     icon: fas fa-monitor-heart-rate
-    order: 5
     displayData:
       sortBy: default
       cols: 2
       itemCountX: 6
 ```
 
-In the above example, these sections are configured per dashy config options with an additional optional sidecar property `order`
-
-Sidecar supports ordering Dashy Sections in the following ways:
-* Sections with `order` will come first and will be ordered in numeric order per their `order` value
-* Default is "natural" order, or the order of Sections in the Sidecar config file. Sections not in the config file will show in Dashy at the end with default settings
+In the above example, these sections are all configured with dashy config options. The order of sections in the sidecar config defines the order in dashy also.
 
 ## Build & Run Locally
 
