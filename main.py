@@ -54,7 +54,7 @@ try:
     # noinspection PyUnusedImports
     from src.Sidecar import SidecarConfig, Sidecar
     # noinspection PyUnusedImports
-    from src.Dashy import Dashy, DashySection, DashyConfig
+    from src.Dashy import Dashy, DashyConfig
 
     sidecar = Sidecar(logging)
     k8s = K8s(logging)

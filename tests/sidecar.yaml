@@ -3,8 +3,8 @@ sections:
     icon: fas fa-house-signal
     displayData:
       sortBy: default
-      cols: 2
-      itemCountX: 6
+      cols: 1
+      itemCountX: 3
   - name: Media & Entertainment
     icon: fas fa-photo-video
     displayData:
