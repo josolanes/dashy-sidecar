@@ -176,19 +176,23 @@ class Dashy:
         else:
             lines.append("sections:")
             for si, sec in enumerate(cfg.sections):
-                lines.append(f"  - name: {_escape(sec.name)}")
-                if sec.icon:
-                    lines.append(f"    icon: {_escape(sec.icon)}")
+                # Start of section entry
+                lines.append("  - ")
+                # Convert section attributes to a dictionary
+                section_data = {key: getattr(sec, key) for key in sec.keys()}
+                # Remove 'items' explicitly as it's left as-is
+                section_data.pop('items', None)
 
-                # displayData
-                dd = sec.display_data
-                if dd is not None:
-                    lines.append("    displayData:")
-                    lines.append(f"      sortBy: {_escape(dd.get('sortBy', 'default'))}")
-                    lines.append(f"      cols: {dd.get('cols', 2)}")
-                    lines.append(f"      itemCountX: {dd.get('itemCountX', 6)}")
-                    if dd.get("collapsed"):
-                        lines.append("      collapsed: true")
+                # Generate YAML lines for section properties
+                for key, value in section_data.items():
+                    # Handle nested dictionaries
+                    if isinstance(value, dict):
+                        lines.append(f"    {key}:")
+                        for sub_key, sub_value in value.items():
+                            lines.append(f"      {sub_key}: {sub_value}")
+                    else:
+                        # Handle basic types
+                        lines.append(f"    {key}: '{value}'")
 
                 # items
                 lines.append("    items:")

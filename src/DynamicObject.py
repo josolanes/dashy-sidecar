@@ -16,3 +16,6 @@ class DynamicObject:
 
     def keys(self):
         return self.__dict__.keys()
+
+    def get(self, name):
+        return self.__getattr__(name)
